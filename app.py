@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import calendar
+import json
 from io import StringIO
 from github import Github, GithubException
 
@@ -11,7 +12,9 @@ st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wi
 # ---------- GitHub 配置 ----------
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 REPO_NAME = "xtq19816195579-ops/workout-app"
-FILE_PATH = "workout_log.csv"
+DATA_FILE = "workout_log.csv"
+STATUS_FILE = "training_status.json"
+PROFILE_FILE = "user_profile.json"
 
 # ---------- 训练部位与动作库 ----------
 BODY_PARTS = {
@@ -25,59 +28,107 @@ BODY_PARTS = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
-# ---------- 数据读取/保存（带缓存） ----------
-@st.cache_data(ttl=30)
-def load_data():
+# ---------- 通用文件读写 ----------
+def github_read(filepath):
     if not GITHUB_TOKEN:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
+        return None
     g = Github(GITHUB_TOKEN)
     try:
         repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(FILE_PATH)
-        csv_text = contents.decoded_content.decode('utf-8')
-        df = pd.read_csv(StringIO(csv_text))
-        return df
+        contents = repo.get_contents(filepath)
+        return contents.decoded_content.decode('utf-8')
     except:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
+        return None
 
-def save_data(df):
+def github_write(filepath, content_str, commit_msg):
     if not GITHUB_TOKEN:
-        st.error("未配置 GitHub Token，无法保存")
         return False
     g = Github(GITHUB_TOKEN)
     try:
         repo = g.get_repo(REPO_NAME)
         try:
-            contents = repo.get_contents(FILE_PATH)
-            repo.update_file(
-                contents.path,
-                f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                df.to_csv(index=False),
-                contents.sha
-            )
+            contents = repo.get_contents(filepath)
+            repo.update_file(filepath, commit_msg, content_str, contents.sha)
         except GithubException as e:
             if e.status == 404:
-                repo.create_file(FILE_PATH, "初始化训练日志", df.to_csv(index=False))
+                repo.create_file(filepath, commit_msg, content_str)
             else:
                 raise e
-        st.cache_data.clear()
         return True
     except Exception as e:
-        st.error(f"保存失败: {e}")
+        st.error(f"写入失败: {e}")
         return False
 
-# ---------- 工具函数：组数合并 ----------
+def github_delete(filepath, commit_msg):
+    if not GITHUB_TOKEN:
+        return False
+    g = Github(GITHUB_TOKEN)
+    try:
+        repo = g.get_repo(REPO_NAME)
+        contents = repo.get_contents(filepath)
+        repo.delete_file(filepath, commit_msg, contents.sha)
+        return True
+    except:
+        return False
+
+# ---------- 训练状态管理 ----------
+def load_training_status():
+    raw = github_read(STATUS_FILE)
+    if raw:
+        try:
+            return json.loads(raw)
+        except:
+            pass
+    return None
+
+def save_training_status(status_dict):
+    github_write(STATUS_FILE, json.dumps(status_dict), "更新训练状态")
+
+def clear_training_status():
+    github_delete(STATUS_FILE, "清除训练状态")
+
+# ---------- 用户配置 ----------
+def load_profile():
+    raw = github_read(PROFILE_FILE)
+    if raw:
+        try:
+            return json.loads(raw)
+        except:
+            pass
+    return {"weight": 70}
+
+def save_profile(profile):
+    github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
+
+# ---------- 训练数据读取/保存 ----------
+@st.cache_data(ttl=30)
+def load_data():
+    if not GITHUB_TOKEN:
+        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "实际时长(分钟)"])
+    g = Github(GITHUB_TOKEN)
+    try:
+        repo = g.get_repo(REPO_NAME)
+        contents = repo.get_contents(DATA_FILE)
+        csv_text = contents.decoded_content.decode('utf-8')
+        df = pd.read_csv(StringIO(csv_text))
+        # 如果旧数据没有“实际时长(分钟)”列，则添加空列
+        if "实际时长(分钟)" not in df.columns:
+            df["实际时长(分钟)"] = None
+        return df
+    except:
+        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "实际时长(分钟)"])
+
+def save_data(df):
+    if not GITHUB_TOKEN:
+        st.error("未配置 GitHub Token，无法保存")
+        return False
+    return github_write(DATA_FILE, df.to_csv(index=False), f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+# ---------- 组数合并 ----------
 def compress_details(detail_str):
-    """将 '10次×20.0kg; 10次×25.0kg; ...' 合并为：
-    2组×10次×20.0kg
-    1组×10次×25.0kg
-    1组×15次×20.0kg
-    （顺序按首次出现的先后排列）
-    """
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
     groups = detail_str.split('; ')
-    # 使用字典记录每个组合的首次出现顺序
     order_map = {}
     count_map = {}
     for idx, g in enumerate(groups):
@@ -85,14 +136,12 @@ def compress_details(detail_str):
             reps, weight = g.split('次×')
             weight = weight.rstrip('kg')
         except:
-            return detail_str  # 格式异常时原样返回
+            return detail_str
         key = (reps, weight)
         if key not in order_map:
             order_map[key] = idx
             count_map[key] = 0
         count_map[key] += 1
-
-    # 按首次出现的顺序排序
     sorted_keys = sorted(order_map.keys(), key=lambda k: order_map[k])
     lines = []
     for reps, weight in sorted_keys:
@@ -103,7 +152,7 @@ def compress_details(detail_str):
             lines.append(f"{cnt}组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
-# ---------- 日历生成 ----------
+# ---------- 日历 ----------
 def get_month_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
@@ -184,7 +233,47 @@ def render_calendar(year, month, trained_dates):
 # ---------- 主界面 ----------
 st.title("💪 量化训练日志")
 
-# 月份导航
+# ---------- 训练计时器（放在顶部显眼位置） ----------
+st.markdown("---")
+st.subheader("⏱️ 训练计时器")
+status = load_training_status()
+now = datetime.now()
+
+# 自动清理超时（超过24小时视为无效）
+if status and status.get("active"):
+    start = datetime.fromisoformat(status["start"])
+    if (now - start).total_seconds() > 86400:
+        clear_training_status()
+        status = None
+
+if not status or not status.get("active"):
+    if st.button("▶️ 开始训练", key="start_training"):
+        save_training_status({"active": True, "start": now.isoformat()})
+        st.rerun()
+else:
+    start = datetime.fromisoformat(status["start"])
+    elapsed = now - start
+    mins = int(elapsed.total_seconds() // 60)
+    secs = int(elapsed.total_seconds() % 60)
+    st.info(f"⏱️ 训练已进行：{mins} 分 {secs} 秒")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("⏹️ 结束训练", key="end_training"):
+            duration_min = round(elapsed.total_seconds() / 60, 1)
+            st.session_state["actual_duration"] = duration_min
+            clear_training_status()
+            st.success(f"训练结束，时长 {duration_min} 分钟")
+            st.rerun()
+    with col2:
+        if st.button("❌ 取消训练", key="cancel_training"):
+            clear_training_status()
+            st.session_state.pop("actual_duration", None)
+            st.warning("训练已取消")
+            st.rerun()
+
+# ---------- 月份导航 ----------
+st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     if st.button("◀ 上月"):
@@ -226,7 +315,7 @@ else:
 year = st.session_state.get("view_year", date.today().year)
 month = st.session_state.get("view_month", date.today().month)
 
-# --- 删除记录的逻辑 ---
+# --- 删除记录逻辑 ---
 if "delete_target" in st.session_state:
     target_time = st.session_state["delete_target"]
     mask = df_all["记录时间"] != target_time
@@ -275,14 +364,22 @@ else:
                 if details:
                     compressed = compress_details(details)
                     st.text(compressed)
-                # 删除按钮
                 if st.button("🗑️ 删除本条", key=f"del_{row['记录时间']}_{row['动作']}"):
                     st.session_state["delete_target"] = row["记录时间"]
                     st.rerun()
                 st.markdown("---")
 
-# ---------- 侧边栏快速记录 ----------
+# ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
+    # 个人设置
+    with st.expander("⚙️ 个人设置", expanded=False):
+        profile = load_profile()
+        weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=profile.get("weight", 70), step=1, key="profile_weight")
+        if st.button("保存体重"):
+            profile["weight"] = weight
+            save_profile(profile)
+            st.success("体重已保存")
+
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
     all_exercises = []
@@ -292,6 +389,7 @@ with st.sidebar:
             chosen = st.multiselect(f"「{part}」的动作", options=exercises, key=f"record_{part}")
             for ex in chosen:
                 all_exercises.append((part, ex))
+
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -313,6 +411,14 @@ with st.sidebar:
                     "组数": sets,
                     "每组详情": "; ".join(details)
                 })
+
+    # 显示当前训练时长（如果已通过计时器结束）
+    actual_duration = st.session_state.get("actual_duration", None)
+    if actual_duration is not None:
+        st.info(f"本次训练时长：{actual_duration} 分钟")
+    else:
+        actual_duration = 0.0
+
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
@@ -327,7 +433,8 @@ with st.sidebar:
                     "动作": item["动作"],
                     "组数": item["组数"],
                     "每组详情": item["每组详情"],
-                    "记录时间": now_time
+                    "记录时间": now_time,
+                    "实际时长(分钟)": actual_duration if actual_duration > 0 else None
                 })
             new_df = pd.DataFrame(rows)
             df_old = load_data()
@@ -336,3 +443,7 @@ with st.sidebar:
                 st.success("保存成功！")
                 st.balloons()
                 st.cache_data.clear()
+                # 清除时长和训练状态
+                if "actual_duration" in st.session_state:
+                    del st.session_state["actual_duration"]
+                clear_training_status()
