@@ -14,7 +14,7 @@ DATA_FILE = "workout_log.csv"
 PROFILE_FILE = "user_profile.json"
 DURATION_FILE = "training_durations.csv"
 
-# 位移字典（米）
+# 位移字典（米），仅力量动作使用
 DISPLACEMENT = {
     "杠铃卧推": 0.5, "上斜卧推": 0.5, "哑铃飞鸟": 0.4, "器械卧推": 0.5,
     "夹胸": 0.3, "俯卧撑": 0.3, "哑铃推举": 0.4, "杠铃推举": 0.4,
@@ -25,17 +25,8 @@ DISPLACEMENT = {
     "窄距卧推": 0.4, "绳索下压": 0.3, "哑铃臂屈伸": 0.3,
     "双杠臂屈伸": 0.4, "俯身臂屈伸": 0.3,
     "深蹲": 0.6, "腿举": 0.5, "腿弯举": 0.4, "腿屈伸": 0.4,
-    "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6,
-    "波比跳": 0, "壶铃摆荡": 0, "战绳": 0, "有氧跑步": 0, "跳绳": 0,
-    "平板支撑": 0, "卷腹": 0, "仰卧抬腿": 0, "俄罗斯转体": 0,
-    "悬垂举腿": 0, "健腹轮": 0
-}
-
-# MET 兜底
-MET_DICT = {
-    "波比跳": 8.0, "壶铃摆荡": 7.0, "战绳": 8.0, "有氧跑步": 8.0, "跳绳": 8.0,
-    "平板支撑": 2.5, "卷腹": 3.0, "仰卧抬腿": 3.0, "俄罗斯转体": 3.0,
-    "悬垂举腿": 4.0, "健腹轮": 4.5, "俯卧撑": 3.5
+    "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6
+    # 有氧动作不在此处
 }
 
 # ---------- 工具函数 ----------
@@ -60,10 +51,16 @@ def load_profile():
 def load_workout_data():
     raw = github_read(DATA_FILE)
     if raw:
-        return pd.read_csv(StringIO(raw))
+        df = pd.read_csv(StringIO(raw))
+        # 确保新列存在
+        for col in ["有氧时长(分钟)", "MET值"]:
+            if col not in df.columns:
+                df[col] = None
+        return df
     return pd.DataFrame()
 
-def load_durations():
+def load_total_duration():
+    """返回今日从计时器累计的总训练时长（分钟）"""
     raw = github_read(DURATION_FILE)
     if not raw:
         return 0.0
@@ -110,14 +107,15 @@ def get_displacement_for_exercise(exercise, profile):
         return round(height * 0.0025, 2)
     return base
 
-def calc_mechanical_calories(row, body_weight, profile):
+def calc_strength_calories(row, body_weight, profile):
+    """力量动作基于做功模型"""
     exercise = row["动作"]
     weight_str = row["每组详情"]
     if pd.isna(weight_str) or not weight_str:
-        return None
+        return 0.0
     displacement = get_displacement_for_exercise(exercise, profile)
     if displacement == 0.0:
-        return None
+        return 0.0  # 无位移力量动作？理论上不应该，但可以返回0
     total_joules = 0
     groups = weight_str.split('; ')
     for g in groups:
@@ -136,14 +134,17 @@ def calc_mechanical_calories(row, body_weight, profile):
     kcal = total_joules / 0.22 / 4184
     return round(kcal, 2)
 
-def estimate_calories_met(exercise, sets, body_weight, duration_min=None):
-    met = MET_DICT.get(exercise, 5.0)
-    if duration_min:
-        time_hours = duration_min / 60
-    else:
-        time_hours = (sets * 2) / 60
-    return round(met * body_weight * time_hours, 1)
+def calc_cardio_calories(row, body_weight):
+    """有氧运动基于 MET 模型，使用记录中的时长和MET值"""
+    duration_min = row["有氧时长(分钟)"]
+    met = row["MET值"]
+    if pd.isna(duration_min) or pd.isna(met):
+        return 0.0
+    time_hours = duration_min / 60
+    kcal = met * body_weight * time_hours
+    return round(kcal, 2)
 
+# ---------- 战报生成 ----------
 def generate_report():
     profile = load_profile()
     body_weight = profile.get("weight", 70)
@@ -157,21 +158,25 @@ def generate_report():
     if today_df.empty:
         return None
 
-    total_min = load_durations()
-    if total_min == 0.0:
-        total_min = today_df["组数"].sum() * 2
+    # 总时长（来自计时器）
+    total_duration = load_total_duration()
+    if total_duration == 0.0:
+        # 回退：力量动作组数估算 + 有氧动作直接取时长累加
+        strength_sets = today_df[today_df["有氧时长(分钟)"].isna()]["组数"].sum()
+        cardio_dur = today_df["有氧时长(分钟)"].dropna().sum()
+        total_duration = strength_sets * 2 + cardio_dur
 
-    h = int(total_min // 60)
-    m = int(total_min % 60)
+    h = int(total_duration // 60)
+    m = int(total_duration % 60)
     dur_str = f"{h}小时{m}分钟" if h else f"{m}分钟"
 
+    # 分别计算消耗
     total_kcal = 0.0
     for _, row in today_df.iterrows():
-        kcal = calc_mechanical_calories(row, body_weight, profile)
-        if kcal is not None:
-            total_kcal += kcal
-        else:
-            total_kcal += estimate_calories_met(row["动作"], row["组数"], body_weight, total_min / 60)
+        if pd.notna(row["有氧时长(分钟)"]):  # 有氧动作
+            total_kcal += calc_cardio_calories(row, body_weight)
+        else:  # 力量动作
+            total_kcal += calc_strength_calories(row, body_weight, profile)
 
     total_kcal = round(total_kcal, 1)
 
@@ -185,10 +190,13 @@ def generate_report():
     report += f"🔥 估算消耗：{total_kcal} 千卡\n"
     report += "✅ 详细记录：\n"
     for _, row in today_df.iterrows():
-        details_compressed = compress_details(row["每组详情"])
-        report += f"  - {row['部位']} {row['动作']}：{int(row['组数'])}组\n"
-        if details_compressed:
-            report += f"    {details_compressed.replace(chr(10), chr(10) + '    ')}\n"
+        if pd.notna(row["有氧时长(分钟)"]):  # 有氧
+            report += f"  - {row['部位']} {row['动作']}：{row['有氧时长(分钟)']} 分钟 (MET {row['MET值']})\n"
+        else:
+            details_compressed = compress_details(row["每组详情"])
+            report += f"  - {row['部位']} {row['动作']}：{int(row['组数'])}组\n"
+            if details_compressed:
+                report += f"    {details_compressed.replace(chr(10), chr(10) + '    ')}\n"
     report += "\n🚀 继续保持，你是最棒的！"
     return report
 
