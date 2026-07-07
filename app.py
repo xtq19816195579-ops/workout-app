@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 import calendar
 import os
+from io import StringIO
 from github import Github, GithubException
 
 # ---------- 页面配置 ----------
@@ -35,7 +36,7 @@ def load_data():
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(FILE_PATH)
         csv_text = contents.decoded_content.decode('utf-8')
-        df = pd.read_csv(pd.compat.StringIO(csv_text))
+        df = pd.read_csv(StringIO(csv_text))
         return df
     except:
         return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
@@ -60,7 +61,7 @@ def save_data(df):
                 repo.create_file(FILE_PATH, "初始化训练日志", df.to_csv(index=False))
             else:
                 raise e
-        st.cache_data.clear()  # 清除缓存，下次加载最新数据
+        st.cache_data.clear()
         return True
     except Exception as e:
         st.error(f"保存失败: {e}")
@@ -68,10 +69,8 @@ def save_data(df):
 
 # ---------- 日历生成相关函数 ----------
 def get_month_calendar(year, month, trained_dates):
-    """生成一个月的日历数据，标记每天状态"""
     cal = calendar.monthcalendar(year, month)
     today = date.today()
-    # 状态: 0=未来/无记录(灰), 1=已训练(绿), 2=过去但未训练(红)
     month_days = []
     for week in cal:
         week_days = []
@@ -81,20 +80,18 @@ def get_month_calendar(year, month, trained_dates):
                 continue
             current_date = date(year, month, day)
             if current_date > today:
-                status = 0  # 未来
+                status = 0
             elif current_date in trained_dates:
-                status = 1  # 已训练
+                status = 1
             else:
-                status = 2  # 错过
+                status = 2
             week_days.append({"day": day, "status": status, "date": current_date})
         month_days.append(week_days)
     return month_days
 
 def render_calendar(year, month, trained_dates):
-    """使用 HTML/CSS 渲染交互式日历"""
     cal_data = get_month_calendar(year, month, trained_dates)
-    
-    # CSS 样式
+
     st.markdown("""
     <style>
     .calendar { width: 100%; border-collapse: collapse; }
@@ -107,16 +104,15 @@ def render_calendar(year, month, trained_dates):
         border: 2px solid transparent; transition: 0.2s;
     }
     .cal-day:hover { border-color: #4a90e2; }
-    .status-trained { background: #a5d6a5; }  /* 绿色 */
-    .status-missed { background: #ef9a9a; }   /* 红色 */
-    .status-future { background: #e0e0e0; }   /* 灰色 */
+    .status-trained { background: #a5d6a5; }
+    .status-missed { background: #ef9a9a; }
+    .status-future { background: #e0e0e0; }
     .status-empty { background: transparent; }
     </style>
     """, unsafe_allow_html=True)
 
-    # 构建 HTML 表格
     html = '<table class="calendar">'
-    html += '<tr><th>月</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th></tr>'
+    html += '<tr><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th></tr>'
     for week in cal_data:
         html += '<tr>'
         for day_info in week:
@@ -125,7 +121,6 @@ def render_calendar(year, month, trained_dates):
                 continue
             day = day_info["day"]
             status = day_info["status"]
-            date_str = day_info["date"].strftime("%Y-%m-%d") if day_info["date"] else ""
             if status == 1:
                 css_class = "status-trained"
             elif status == 2:
@@ -134,18 +129,13 @@ def render_calendar(year, month, trained_dates):
                 css_class = "status-future"
             else:
                 css_class = "status-empty"
-            # 使用 Streamlit 的查询参数模拟点击，但更简单：用链接形式，但 st.markdown 不支持 JS。
-            # 我们改用 form 提交或直接使用 st.button 网格，这里改为使用可点击的 div 配合 on_click 回调较难。
-            # 最终方案：在日历下方放一个日期选择器，日历仅作可视化。
             html += f'<td><span class="cal-day {css_class}">{day}</span></td>'
         html += '</tr>'
     html += '</table>'
     st.markdown(html, unsafe_allow_html=True)
 
-    # 日期选择器（用于查看详情）
     st.markdown("---")
-    st.markdown("#### 点击下方选择日期查看详情")
-    # 默认选今天，但不超过今天
+    st.markdown("#### 选择日期查看详情")
     default_date = date.today()
     selected_date = st.date_input(
         "选择日期",
@@ -160,30 +150,23 @@ def render_calendar(year, month, trained_dates):
 st.title("💪 量化训练日志")
 
 # 月份导航
+if "view_month" not in st.session_state:
+    st.session_state.view_month = date.today().month
+if "view_year" not in st.session_state:
+    st.session_state.view_year = date.today().year
+
 col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     if st.button("◀ 上月"):
-        if "view_month" not in st.session_state:
-            st.session_state.view_month = date.today().month
-        if "view_year" not in st.session_state:
-            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 1:
             st.session_state.view_month = 12
             st.session_state.view_year -= 1
         else:
             st.session_state.view_month -= 1
 with col2:
-    if "view_month" not in st.session_state:
-        st.session_state.view_month = date.today().month
-    if "view_year" not in st.session_state:
-        st.session_state.view_year = date.today().year
     st.markdown(f"### {st.session_state.view_year} 年 {st.session_state.view_month} 月")
 with col3:
     if st.button("下月 ▶"):
-        if "view_month" not in st.session_state:
-            st.session_state.view_month = date.today().month
-        if "view_year" not in st.session_state:
-            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 12:
             st.session_state.view_month = 1
             st.session_state.view_year += 1
@@ -198,27 +181,25 @@ if not df_all.empty:
 else:
     trained_dates = set()
 
-# 获取当前展示的年月
-year = st.session_state.get("view_year", date.today().year)
-month = st.session_state.get("view_month", date.today().month)
+year = st.session_state.view_year
+month = st.session_state.view_month
 
-# 渲染日历，并获取选中的日期
 selected_date = render_calendar(year, month, trained_dates)
 
-# 统计出勤天数
+# 出勤统计
 if not df_all.empty:
-    month_mask = (df_all["日期"].apply(lambda d: d.year == year and d.month == month))
+    month_mask = df_all["日期"].apply(lambda d: d.year == year and d.month == month)
     attendance = df_all[month_mask]["日期"].nunique()
 else:
     attendance = 0
 days_in_month = calendar.monthrange(year, month)[1]
-st.markdown(f"**本月出勤：{attendance} / {min(date.today().day, days_in_month) if year == date.today().year and month == date.today().month else days_in_month} 天**")
+today_day = date.today().day if year == date.today().year and month == date.today().month else days_in_month
+st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} 天**")
 
-# ---------- 显示选中日期的详细记录 ----------
+# 显示选中日期详情
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
 
-# 从数据中筛选
 if not df_all.empty:
     day_data = df_all[df_all["日期"] == selected_date]
 else:
@@ -227,19 +208,19 @@ else:
 if day_data.empty:
     st.info("该日无训练记录")
 else:
-    # 按部位分组
     for part in day_data["部位"].unique():
         with st.expander(f"🏷️ {part}", expanded=True):
             part_data = day_data[day_data["部位"] == part]
             for _, row in part_data.iterrows():
                 st.markdown(f"**🏋️ {row['动作']}**  |  组数：{int(row['组数'])}")
-                # 每组详情解析
                 details = row["每组详情"]
                 if details:
-                    st.text(f"　{details.replace('; ', '\n　')}")
+                    # 修复：f-string 内不能直接使用反斜杠，先用变量
+                    sep = '\n　'
+                    st.text(f"　{details.replace('; ', sep)}")
                 st.markdown("---")
 
-# ---------- 添加训练记录入口 ----------
+# 侧边栏：快速记录
 with st.sidebar:
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
@@ -250,6 +231,7 @@ with st.sidebar:
             chosen = st.multiselect(f"「{part}」的动作", options=exercises, key=f"record_{part}")
             for ex in chosen:
                 all_exercises.append((part, ex))
+
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -271,6 +253,7 @@ with st.sidebar:
                     "组数": sets,
                     "每组详情": "; ".join(details)
                 })
+
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
@@ -293,5 +276,3 @@ with st.sidebar:
             if save_data(df_combined):
                 st.success("保存成功！")
                 st.balloons()
-                # 强制刷新数据缓存
-                st.cache_data.clear()
