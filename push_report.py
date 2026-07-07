@@ -42,7 +42,7 @@ def get_user_id(email):
     pass
 
 # 临时：直接硬编码你的 user_id（从 Supabase 控制台 → Authentication → Users 复制）
-YOUR_USER_ID = "你的UUID"  # 替换
+YOUR_USER_ID = "6e64e9cc-aebc-48ca-8496-8e177b87c0be"  # 替换
 
 # ---------- 数据读取 ----------
 def load_today_workouts():
