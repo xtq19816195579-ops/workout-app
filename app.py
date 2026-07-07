@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import calendar
 import json
 from io import StringIO
@@ -111,7 +111,6 @@ def load_data():
         contents = repo.get_contents(DATA_FILE)
         csv_text = contents.decoded_content.decode('utf-8')
         df = pd.read_csv(StringIO(csv_text))
-        # 如果旧数据没有“实际时长(分钟)”列，则添加空列
         if "实际时长(分钟)" not in df.columns:
             df["实际时长(分钟)"] = None
         return df
@@ -233,13 +232,12 @@ def render_calendar(year, month, trained_dates):
 # ---------- 主界面 ----------
 st.title("💪 量化训练日志")
 
-# ---------- 训练计时器（放在顶部显眼位置） ----------
+# ---------- 训练计时器 ----------
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 status = load_training_status()
 now = datetime.now()
 
-# 自动清理超时（超过24小时视为无效）
 if status and status.get("active"):
     start = datetime.fromisoformat(status["start"])
     if (now - start).total_seconds() > 86400:
@@ -315,7 +313,7 @@ else:
 year = st.session_state.get("view_year", date.today().year)
 month = st.session_state.get("view_month", date.today().month)
 
-# --- 删除记录逻辑 ---
+# 删除记录逻辑
 if "delete_target" in st.session_state:
     target_time = st.session_state["delete_target"]
     mask = df_all["记录时间"] != target_time
@@ -330,7 +328,6 @@ if "delete_target" in st.session_state:
     st.cache_data.clear()
     st.rerun()
 
-# 渲染日历
 selected_date = render_calendar(year, month, trained_dates)
 
 # 出勤统计
@@ -343,10 +340,9 @@ days_in_month = calendar.monthrange(year, month)[1]
 today_day = date.today().day if year == date.today().year and month == date.today().month else days_in_month
 st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} 天**")
 
-# ---------- 显示选中日期的详细记录 ----------
+# 选中日期详细记录
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
-
 if not df_all.empty:
     day_data = df_all[df_all["日期"] == selected_date]
 else:
@@ -371,7 +367,6 @@ else:
 
 # ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
-    # 个人设置
     with st.expander("⚙️ 个人设置", expanded=False):
         profile = load_profile()
         weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=profile.get("weight", 70), step=1, key="profile_weight")
@@ -412,17 +407,21 @@ with st.sidebar:
                     "每组详情": "; ".join(details)
                 })
 
-    # 显示当前训练时长（如果已通过计时器结束）
-    actual_duration = st.session_state.get("actual_duration", None)
-    if actual_duration is not None:
-        st.info(f"本次训练时长：{actual_duration} 分钟")
-    else:
-        actual_duration = 0.0
-
+    # 保存训练记录
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
+            # 自动结束训练（如果仍在进行中）
+            status_now = load_training_status()
+            if status_now and status_now.get("active") and ("actual_duration" not in st.session_state or st.session_state.actual_duration == 0):
+                start_time = datetime.fromisoformat(status_now["start"])
+                duration_min = round((datetime.now() - start_time).total_seconds() / 60, 1)
+                st.session_state["actual_duration"] = duration_min
+                clear_training_status()
+
+            actual_duration = st.session_state.get("actual_duration", 0.0)
+
             today_str = datetime.now().strftime("%Y-%m-%d")
             now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
             rows = []
@@ -443,7 +442,6 @@ with st.sidebar:
                 st.success("保存成功！")
                 st.balloons()
                 st.cache_data.clear()
-                # 清除时长和训练状态
                 if "actual_duration" in st.session_state:
                     del st.session_state["actual_duration"]
                 clear_training_status()
