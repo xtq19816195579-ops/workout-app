@@ -29,6 +29,31 @@ BODY_PARTS = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
+# 动作类型：strength（力量）或 cardio（有氧）
+EXERCISE_TYPE = {}
+for part, exercises in BODY_PARTS.items():
+    for ex in exercises:
+        if ex in ["有氧跑步", "跳绳", "波比跳", "壶铃摆荡", "战绳"]:  # 可自行调整
+            EXERCISE_TYPE[ex] = "cardio"
+        else:
+            EXERCISE_TYPE[ex] = "strength"
+
+# 常见有氧运动的预设 MET 值（供下拉选择）
+CARDIO_MET_OPTIONS = {
+    "跑步 (8 km/h)": 8.0,
+    "跑步 (10 km/h)": 10.0,
+    "慢跑": 7.0,
+    "跳绳 (中速)": 10.0,
+    "跳绳 (快速)": 12.0,
+    "游泳 (自由泳)": 8.0,
+    "游泳 (蛙泳)": 7.0,
+    "骑行 (中等)": 6.0,
+    "椭圆机": 5.0,
+    "划船机": 7.0,
+    "高强度间歇训练": 12.0,
+    "自定义": None  # 允许手动输入
+}
+
 # ---------- 通用文件读写 ----------
 def github_read(filepath):
     if not GITHUB_TOKEN:
@@ -101,34 +126,34 @@ def load_profile():
 def save_profile(profile):
     github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
 
-# ---------- 训练数据读取/保存（不再包含“实际时长”列）----------
+# ---------- 训练数据读取/保存 ----------
 @st.cache_data(ttl=30)
 def load_data():
-    """读取训练动作记录，列：日期、部位、动作、组数、每组详情、记录时间"""
     if not GITHUB_TOKEN:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
+        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"])
     g = Github(GITHUB_TOKEN)
     try:
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(DATA_FILE)
         csv_text = contents.decoded_content.decode('utf-8')
         df = pd.read_csv(StringIO(csv_text))
-        # 如果旧数据有“实际时长(分钟)”列，保留但不使用，不影响
+        # 确保新列存在
+        for col in ["有氧时长(分钟)", "MET值"]:
+            if col not in df.columns:
+                df[col] = None
         return df
     except:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
+        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"])
 
 def save_data(df):
-    """保存训练动作记录，仅包含动作相关列"""
     if not GITHUB_TOKEN:
         st.error("未配置 GitHub Token，无法保存")
         return False
-    # 确保写入时没有多余列，只保留需要的
-    cols = ["日期", "部位", "动作", "组数", "每组详情", "记录时间"]
+    cols = ["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"]
     df_to_save = df[cols]
     return github_write(DATA_FILE, df_to_save.to_csv(index=False), f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# ---------- 组数合并 ----------
+# ---------- 组数合并（仅用于力量动作） ----------
 def compress_details(detail_str):
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
@@ -361,7 +386,7 @@ days_in_month = calendar.monthrange(year, month)[1]
 today_day = date.today().day if year == date.today().year and month == date.today().month else days_in_month
 st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} 天**")
 
-# 选中日期详细记录
+# ---------- 显示选中日期的详细记录 ----------
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
 if not df_all.empty:
@@ -376,11 +401,21 @@ else:
         with st.expander(f"🏷️ {part}", expanded=True):
             part_data = day_data[day_data["部位"] == part]
             for _, row in part_data.iterrows():
-                st.markdown(f"**🏋️ {row['动作']}**  |  组数：{int(row['组数'])}")
-                details = row["每组详情"]
-                if details:
-                    compressed = compress_details(details)
-                    st.text(compressed)
+                ex_type = EXERCISE_TYPE.get(row["动作"], "strength")
+                if ex_type == "strength":
+                    st.markdown(f"**🏋️ {row['动作']}**  |  组数：{int(row['组数'])}")
+                    details = row["每组详情"]
+                    if details:
+                        compressed = compress_details(details)
+                        st.text(compressed)
+                else:
+                    st.markdown(f"**🏃 {row['动作']}**")
+                    duration = row["有氧时长(分钟)"]
+                    met = row["MET值"]
+                    if pd.notna(duration):
+                        st.text(f"时长：{duration} 分钟")
+                    if pd.notna(met):
+                        st.text(f"MET：{met}")
                 if st.button("🗑️ 删除本条", key=f"del_{row['记录时间']}_{row['动作']}"):
                     st.session_state["delete_target"] = row["记录时间"]
                     st.rerun()
@@ -413,23 +448,42 @@ with st.sidebar:
     if all_exercises:
         st.markdown("### 填写详情")
         for part, exercise in all_exercises:
+            ex_type = EXERCISE_TYPE.get(exercise, "strength")
             with st.container():
                 st.write(f"**{part} - {exercise}**")
-                sets = st.number_input("组数", 0, 20, 3, key=f"set_{part}_{exercise}")
-                details = []
-                for s in range(int(sets)):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        reps = st.number_input("次数", 0, 100, 10, key=f"rep_{part}_{exercise}_{s}")
-                    with c2:
-                        weight = st.number_input("重量kg", 0.0, 500.0, 20.0, 2.5, key=f"wt_{part}_{exercise}_{s}")
-                    details.append(f"{reps}次×{weight}kg")
-                training_data.append({
-                    "部位": part,
-                    "动作": exercise,
-                    "组数": sets,
-                    "每组详情": "; ".join(details)
-                })
+                if ex_type == "strength":
+                    sets = st.number_input("组数", 0, 20, 3, key=f"set_{part}_{exercise}")
+                    details = []
+                    for s in range(int(sets)):
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            reps = st.number_input("次数", 0, 100, 10, key=f"rep_{part}_{exercise}_{s}")
+                        with c2:
+                            weight = st.number_input("重量kg", 0.0, 500.0, 20.0, 2.5, key=f"wt_{part}_{exercise}_{s}")
+                        details.append(f"{reps}次×{weight}kg")
+                    training_data.append({
+                        "部位": part,
+                        "动作": exercise,
+                        "组数": sets,
+                        "每组详情": "; ".join(details),
+                        "有氧时长(分钟)": None,
+                        "MET值": None
+                    })
+                else:  # cardio
+                    duration = st.number_input("时长 (分钟)", 0, 300, 30, key=f"cardio_dur_{part}_{exercise}")
+                    met_option = st.selectbox("强度 (MET)", options=list(CARDIO_MET_OPTIONS.keys()), key=f"cardio_met_{part}_{exercise}")
+                    if met_option == "自定义":
+                        met_val = st.number_input("输入 MET 值", 0.0, 20.0, 8.0, key=f"cardio_met_val_{part}_{exercise}")
+                    else:
+                        met_val = CARDIO_MET_OPTIONS[met_option]
+                    training_data.append({
+                        "部位": part,
+                        "动作": exercise,
+                        "组数": 0,
+                        "每组详情": "",
+                        "有氧时长(分钟)": duration,
+                        "MET值": met_val
+                    })
 
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
@@ -445,7 +499,9 @@ with st.sidebar:
                     "动作": item["动作"],
                     "组数": item["组数"],
                     "每组详情": item["每组详情"],
-                    "记录时间": now_time
+                    "记录时间": now_time,
+                    "有氧时长(分钟)": item["有氧时长(分钟)"],
+                    "MET值": item["MET值"]
                 })
             new_df = pd.DataFrame(rows)
             df_old = load_data()
