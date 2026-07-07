@@ -90,14 +90,12 @@ def compress_details(detail_str):
     return '\n'.join(lines)
 
 def get_displacement_for_exercise(exercise, profile):
-    """根据身高调整某些动作的位移"""
     base = DISPLACEMENT.get(exercise, 0.0)
     if base == 0.0:
         return base
     height = profile.get("height", 175)
-    # 引体向上、双杠臂屈伸的位移与身高正相关（约身高的25%）
     if exercise in ["引体向上", "双杠臂屈伸"]:
-        return round(height * 0.0025, 2)  # 身高(cm) * 0.0025 约为米
+        return round(height * 0.0025, 2)   # 身高 cm 转为米，约 25% 身高
     return base
 
 def calc_mechanical_calories(row, body_weight, profile):
@@ -107,20 +105,22 @@ def calc_mechanical_calories(row, body_weight, profile):
         return None
     displacement = get_displacement_for_exercise(exercise, profile)
     if displacement == 0.0:
-        return None
+        return None        # 无位移动作，交给 MET 兜底
+
     total_joules = 0
     groups = weight_str.split('; ')
     for g in groups:
         try:
-            reps, weight = g.split('次×')
-            weight = float(weight_part.replace('kg', ''))
+            reps, weight_part = g.split('次×')   # 分离次数和重量
+            weight = float(weight_part.replace('kg', ''))  # 去除'kg'并转浮点
             reps = int(reps)
             if exercise in ["引体向上", "双杠臂屈伸"]:
-                weight = body_weight * 0.9  # 约90%体重
+                weight = body_weight * 0.9   # 自重动作，负荷为体重的90%
             joules = weight * 9.8 * displacement * reps
             total_joules += joules
         except:
             continue
+
     if total_joules == 0:
         return 0.0
     kcal = total_joules / 0.22 / 4184
@@ -151,7 +151,7 @@ def generate_report():
     # ---------- 叠加一天多次训练的时长 ----------
     total_min = 0.0
     if "实际时长(分钟)" in today_df.columns:
-        # 按记录批次去重（同一次训练的多条记录实际时长相同）
+        # 按记录批次去重（同一次训练的多条记录共享相同实际时长）
         duration_series = today_df.groupby("记录时间")["实际时长(分钟)"].first().dropna()
         if not duration_series.empty:
             total_min = duration_series.sum()
