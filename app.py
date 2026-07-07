@@ -15,7 +15,7 @@ REPO_NAME = "xtq19816195579-ops/workout-app"
 DATA_FILE = "workout_log.csv"
 STATUS_FILE = "training_status.json"
 PROFILE_FILE = "user_profile.json"
-DURATION_FILE = "training_durations.csv"   # 独立保存训练时长
+DURATION_FILE = "training_durations.csv"
 
 # ---------- 训练部位与动作库 ----------
 BODY_PARTS = {
@@ -72,7 +72,7 @@ def github_delete(filepath, commit_msg):
     except:
         return False
 
-# ---------- 训练计时状态管理（仅用于界面显示）----------
+# ---------- 训练计时状态管理 ----------
 def load_training_status():
     raw = github_read(STATUS_FILE)
     if raw:
@@ -101,9 +101,10 @@ def load_profile():
 def save_profile(profile):
     github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
 
-# ---------- 训练数据读取/保存 ----------
+# ---------- 训练数据读取/保存（不再包含“实际时长”列）----------
 @st.cache_data(ttl=30)
 def load_data():
+    """读取训练动作记录，列：日期、部位、动作、组数、每组详情、记录时间"""
     if not GITHUB_TOKEN:
         return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
     g = Github(GITHUB_TOKEN)
@@ -112,15 +113,20 @@ def load_data():
         contents = repo.get_contents(DATA_FILE)
         csv_text = contents.decoded_content.decode('utf-8')
         df = pd.read_csv(StringIO(csv_text))
+        # 如果旧数据有“实际时长(分钟)”列，保留但不使用，不影响
         return df
     except:
         return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间"])
 
 def save_data(df):
+    """保存训练动作记录，仅包含动作相关列"""
     if not GITHUB_TOKEN:
         st.error("未配置 GitHub Token，无法保存")
         return False
-    return github_write(DATA_FILE, df.to_csv(index=False), f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    # 确保写入时没有多余列，只保留需要的
+    cols = ["日期", "部位", "动作", "组数", "每组详情", "记录时间"]
+    df_to_save = df[cols]
+    return github_write(DATA_FILE, df_to_save.to_csv(index=False), f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # ---------- 组数合并 ----------
 def compress_details(detail_str):
@@ -237,7 +243,6 @@ st.subheader("⏱️ 训练计时器")
 status = load_training_status()
 now = datetime.now()
 
-# 超时自动清除（>24h）
 if status and status.get("active"):
     start = datetime.fromisoformat(status["start"])
     if (now - start).total_seconds() > 86400:
@@ -260,7 +265,6 @@ else:
         if st.button("⏹️ 结束训练并保存时长", key="end_training"):
             end_time = now
             duration_min = round(elapsed.total_seconds() / 60, 1)
-            # 将本次时长追加到 durations 文件
             new_row = pd.DataFrame([{
                 "日期": date.today().isoformat(),
                 "开始时间": start.isoformat(),
