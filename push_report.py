@@ -12,6 +12,7 @@ GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 REPO_NAME = "xtq19816195579-ops/workout-app"
 DATA_FILE = "workout_log.csv"
 PROFILE_FILE = "user_profile.json"
+DURATION_FILE = "training_durations.csv"
 
 # 位移字典（米）
 DISPLACEMENT = {
@@ -62,6 +63,18 @@ def load_workout_data():
         return pd.read_csv(StringIO(raw))
     return pd.DataFrame()
 
+def load_durations():
+    """返回当天的所有训练时长（分钟）的总和"""
+    raw = github_read(DURATION_FILE)
+    if not raw:
+        return 0.0
+    df = pd.read_csv(StringIO(raw))
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_df = df[df["日期"] == today]
+    if today_df.empty:
+        return 0.0
+    return today_df["时长(分钟)"].sum()
+
 def compress_details(detail_str):
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
@@ -95,7 +108,7 @@ def get_displacement_for_exercise(exercise, profile):
         return base
     height = profile.get("height", 175)
     if exercise in ["引体向上", "双杠臂屈伸"]:
-        return round(height * 0.0025, 2)   # 身高 cm 转为米，约 25% 身高
+        return round(height * 0.0025, 2)
     return base
 
 def calc_mechanical_calories(row, body_weight, profile):
@@ -105,22 +118,20 @@ def calc_mechanical_calories(row, body_weight, profile):
         return None
     displacement = get_displacement_for_exercise(exercise, profile)
     if displacement == 0.0:
-        return None        # 无位移动作，交给 MET 兜底
-
+        return None
     total_joules = 0
     groups = weight_str.split('; ')
     for g in groups:
         try:
-            reps, weight_part = g.split('次×')   # 分离次数和重量
-            weight = float(weight_part.replace('kg', ''))  # 去除'kg'并转浮点
+            reps, weight_part = g.split('次×')
+            weight = float(weight_part.replace('kg', ''))
             reps = int(reps)
             if exercise in ["引体向上", "双杠臂屈伸"]:
-                weight = body_weight * 0.9   # 自重动作，负荷为体重的90%
+                weight = body_weight * 0.9
             joules = weight * 9.8 * displacement * reps
             total_joules += joules
         except:
             continue
-
     if total_joules == 0:
         return 0.0
     kcal = total_joules / 0.22 / 4184
@@ -148,23 +159,17 @@ def generate_report():
     if today_df.empty:
         return None
 
-    # ---------- 叠加一天多次训练的时长 ----------
-    total_min = 0.0
-    if "实际时长(分钟)" in today_df.columns:
-        # 按记录批次去重（同一次训练的多条记录共享相同实际时长）
-        duration_series = today_df.groupby("记录时间")["实际时长(分钟)"].first().dropna()
-        if not duration_series.empty:
-            total_min = duration_series.sum()
-        else:
-            total_min = today_df["组数"].sum() * 2
-    else:
+    # 1. 优先使用独立时长文件的累计值
+    total_min = load_durations()
+    if total_min == 0.0:
+        # 2. 若无时长文件，回退到组数估算
         total_min = today_df["组数"].sum() * 2
 
     h = int(total_min // 60)
     m = int(total_min % 60)
     dur_str = f"{h}小时{m}分钟" if h else f"{m}分钟"
 
-    # ---------- 总消耗 ----------
+    # 总消耗（仅与动作有关，时长参与MET部分）
     total_kcal = 0.0
     for _, row in today_df.iterrows():
         kcal = calc_mechanical_calories(row, body_weight, profile)
