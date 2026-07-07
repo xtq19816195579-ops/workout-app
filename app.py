@@ -71,7 +71,7 @@ def github_delete(filepath, commit_msg):
     except:
         return False
 
-# ---------- 训练状态管理 ----------
+# ---------- 训练状态管理（包含草稿、计时）----------
 def load_training_status():
     raw = github_read(STATUS_FILE)
     if raw:
@@ -95,7 +95,7 @@ def load_profile():
             return json.loads(raw)
         except:
             pass
-    return {"weight": 70, "height": 175}  # 默认体重70kg，身高175cm
+    return {"weight": 70, "height": 175}
 
 def save_profile(profile):
     github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
@@ -229,46 +229,121 @@ def render_calendar(year, month, trained_dates):
     )
     return selected_date
 
+# ---------- 读取当前表单值（用于保存草稿）----------
+def collect_form_state():
+    """遍历 session_state 中与记录相关的 key，收集当前填写的动作详情"""
+    form = {"selected_parts": [], "exercises": {}}
+    if "record_parts" in st.session_state:
+        form["selected_parts"] = st.session_state.record_parts
+    for part in BODY_PARTS:
+        key = f"record_{part}"
+        if key in st.session_state and st.session_state[key]:
+            form["exercises"][part] = st.session_state[key]
+    # 保存具体的组数、次数、重量（通过遍历所有可能 key）
+    details = {}
+    for part in BODY_PARTS:
+        for ex in BODY_PARTS[part]:
+            set_key = f"set_{part}_{ex}"
+            if set_key in st.session_state:
+                sets = st.session_state[set_key]
+                details[f"set_{part}_{ex}"] = sets
+                for s in range(sets):
+                    rep_key = f"rep_{part}_{ex}_{s}"
+                    wt_key = f"wt_{part}_{ex}_{s}"
+                    if rep_key in st.session_state:
+                        details[rep_key] = st.session_state[rep_key]
+                    if wt_key in st.session_state:
+                        details[wt_key] = st.session_state[wt_key]
+    return {
+        "selected_parts": form["selected_parts"],
+        "exercises": form["exercises"],
+        "details": details
+    }
+
+def restore_form_state(draft):
+    """根据草稿恢复 session_state 中的表单值"""
+    if not draft:
+        return
+    # 恢复选中的部位
+    if "selected_parts" in draft:
+        st.session_state.record_parts = draft["selected_parts"]
+    # 恢复每个部位选中的动作
+    if "exercises" in draft:
+        for part, ex_list in draft["exercises"].items():
+            st.session_state[f"record_{part}"] = ex_list
+    # 恢复具体数值
+    if "details" in draft:
+        for key, value in draft["details"].items():
+            st.session_state[key] = value
+
 # ---------- 主界面 ----------
 st.title("💪 量化训练日志")
 
-# ---------- 训练计时器 ----------
+# ---------- 训练计时器与草稿恢复 ----------
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 status = load_training_status()
 now = datetime.now()
 
-if status and status.get("active"):
+# 自动清理超时状态（超过24小时视为无效，清除）
+if status and status.get("start"):
     start = datetime.fromisoformat(status["start"])
     if (now - start).total_seconds() > 86400:
         clear_training_status()
         status = None
 
-if not status or not status.get("active"):
+# 如果有草稿（训练已结束但未保存）或进行中的训练，提示用户
+if status:
+    if status.get("active"):
+        # 训练进行中
+        start = datetime.fromisoformat(status["start"])
+        elapsed = now - start
+        mins = int(elapsed.total_seconds() // 60)
+        secs = int(elapsed.total_seconds() % 60)
+        st.info(f"⏱️ 训练已进行：{mins} 分 {secs} 秒")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⏹️ 结束训练并暂存草稿", key="end_training"):
+                duration_min = round(elapsed.total_seconds() / 60, 1)
+                # 保存草稿（当前表单内容 + 时长）
+                draft = collect_form_state()
+                new_status = {
+                    "active": False,
+                    "start": status["start"],
+                    "end": now.isoformat(),
+                    "actual_duration": duration_min,
+                    "draft": draft
+                }
+                save_training_status(new_status)
+                st.success(f"训练已结束，时长 {duration_min} 分钟，草稿已保存。请填写动作后保存记录。")
+                st.rerun()
+        with col2:
+            if st.button("❌ 取消训练", key="cancel_training"):
+                clear_training_status()
+                st.warning("训练已取消，草稿已清除。")
+                st.rerun()
+
+    elif not status.get("active") and status.get("draft"):
+        # 存在未保存的草稿（训练已结束）
+        st.warning("📝 你有未保存的训练草稿（包含时长和动作详情）。")
+        if st.button("📂 加载草稿"):
+            restore_form_state(status["draft"])
+            # 将草稿中的时长暂存到 session_state 供保存时使用
+            st.session_state["actual_duration"] = status.get("actual_duration", 0)
+            # 保留状态文件，但清除 draft 字段避免重复加载？保留以便再次加载
+            # 我们仅恢复表单，不清除状态，保存时才清除
+            st.rerun()
+        if st.button("🗑️ 清除草稿"):
+            clear_training_status()
+            st.session_state.pop("actual_duration", None)
+            st.rerun()
+
+else:
+    # 无任何状态，显示开始训练按钮
     if st.button("▶️ 开始训练", key="start_training"):
         save_training_status({"active": True, "start": now.isoformat()})
         st.rerun()
-else:
-    start = datetime.fromisoformat(status["start"])
-    elapsed = now - start
-    mins = int(elapsed.total_seconds() // 60)
-    secs = int(elapsed.total_seconds() % 60)
-    st.info(f"⏱️ 训练已进行：{mins} 分 {secs} 秒")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⏹️ 结束训练", key="end_training"):
-            duration_min = round(elapsed.total_seconds() / 60, 1)
-            st.session_state["actual_duration"] = duration_min
-            clear_training_status()
-            st.success(f"训练结束，时长 {duration_min} 分钟")
-            st.rerun()
-    with col2:
-        if st.button("❌ 取消训练", key="cancel_training"):
-            clear_training_status()
-            st.session_state.pop("actual_duration", None)
-            st.warning("训练已取消")
-            st.rerun()
 
 # ---------- 月份导航 ----------
 st.markdown("---")
@@ -376,6 +451,7 @@ with st.sidebar:
             profile["height"] = height
             save_profile(profile)
             st.success("身体数据已保存")
+        st.caption("保存一次即可，后续自动读取。")
 
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
@@ -409,18 +485,45 @@ with st.sidebar:
                     "每组详情": "; ".join(details)
                 })
 
-    # 保存训练记录
+        # 暂存草稿按钮
+        if st.button("💾 暂存草稿"):
+            draft = collect_form_state()
+            status = load_training_status()
+            if status is None:
+                status = {"active": False}
+            status["draft"] = draft
+            # 如果已有 actual_duration 保留
+            save_training_status(status)
+            st.success("草稿已保存到云端，刷新页面后可加载。")
+
+    # 显示当前训练时长（来自草稿恢复或刚结束训练）
+    actual_duration = st.session_state.get("actual_duration", None)
+    if actual_duration is not None:
+        st.info(f"本次训练时长：{actual_duration} 分钟")
+    else:
+        # 检查状态文件中是否有未保存的时长
+        status = load_training_status()
+        if status and not status.get("active") and "actual_duration" in status:
+            actual_duration = status["actual_duration"]
+            st.session_state["actual_duration"] = actual_duration
+
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
-            # 自动结束训练（如果仍在进行中）
+            # 如果训练仍在进行中，先自动结束
             status_now = load_training_status()
-            if status_now and status_now.get("active") and ("actual_duration" not in st.session_state or st.session_state.actual_duration == 0):
+            if status_now and status_now.get("active"):
                 start_time = datetime.fromisoformat(status_now["start"])
                 duration_min = round((datetime.now() - start_time).total_seconds() / 60, 1)
+                actual_duration = duration_min
                 st.session_state["actual_duration"] = duration_min
-                clear_training_status()
+                # 结束状态
+                status_now["active"] = False
+                status_now["end"] = datetime.now().isoformat()
+                status_now["actual_duration"] = duration_min
+                status_now["draft"] = collect_form_state()
+                save_training_status(status_now)
 
             actual_duration = st.session_state.get("actual_duration", 0.0)
 
@@ -444,6 +547,8 @@ with st.sidebar:
                 st.success("保存成功！")
                 st.balloons()
                 st.cache_data.clear()
+                # 清除状态文件和 session_state 中的时长、草稿
+                clear_training_status()
                 if "actual_duration" in st.session_state:
                     del st.session_state["actual_duration"]
-                clear_training_status()
+                st.rerun()
