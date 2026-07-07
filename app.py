@@ -2,20 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import calendar
-import json
-from io import StringIO
-from github import Github, GithubException
+from supabase import create_client, Client
 
 # ---------- 页面配置 ----------
 st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wide")
 
-# ---------- GitHub 配置 ----------
-GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
-REPO_NAME = "xtq19816195579-ops/workout-app"
-DATA_FILE = "workout_log.csv"
-STATUS_FILE = "training_status.json"
-PROFILE_FILE = "user_profile.json"
-DURATION_FILE = "training_durations.csv"
+# ---------- Supabase 配置 ----------
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ---------- 训练部位与动作库 ----------
 BODY_PARTS = {
@@ -29,16 +24,15 @@ BODY_PARTS = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
-# 动作类型：strength（力量）或 cardio（有氧）
+# 动作类型标记：strength 或 cardio
 EXERCISE_TYPE = {}
 for part, exercises in BODY_PARTS.items():
     for ex in exercises:
-        if ex in ["有氧跑步", "跳绳", "波比跳", "壶铃摆荡", "战绳"]:  # 可自行调整
+        if ex in ["有氧跑步", "跳绳", "波比跳", "壶铃摆荡", "战绳"]:
             EXERCISE_TYPE[ex] = "cardio"
         else:
             EXERCISE_TYPE[ex] = "strength"
 
-# 常见有氧运动的预设 MET 值（供下拉选择）
 CARDIO_MET_OPTIONS = {
     "跑步 (8 km/h)": 8.0,
     "跑步 (10 km/h)": 10.0,
@@ -51,109 +45,81 @@ CARDIO_MET_OPTIONS = {
     "椭圆机": 5.0,
     "划船机": 7.0,
     "高强度间歇训练": 12.0,
-    "自定义": None  # 允许手动输入
+    "自定义": None
 }
 
-# ---------- 通用文件读写 ----------
-def github_read(filepath):
-    if not GITHUB_TOKEN:
-        return None
-    g = Github(GITHUB_TOKEN)
-    try:
-        repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(filepath)
-        return contents.decoded_content.decode('utf-8')
-    except:
-        return None
+# ---------- 用户认证函数 ----------
+def login_page():
+    st.title("欢迎使用量化训练日志")
+    menu = st.radio("选择操作", ["登录", "注册"])
+    email = st.text_input("邮箱")
+    password = st.text_input("密码", type="password")
 
-def github_write(filepath, content_str, commit_msg):
-    if not GITHUB_TOKEN:
-        return False
-    g = Github(GITHUB_TOKEN)
-    try:
-        repo = g.get_repo(REPO_NAME)
-        try:
-            contents = repo.get_contents(filepath)
-            repo.update_file(filepath, commit_msg, content_str, contents.sha)
-        except GithubException as e:
-            if e.status == 404:
-                repo.create_file(filepath, commit_msg, content_str)
-            else:
-                raise e
-        return True
-    except Exception as e:
-        st.error(f"写入失败: {e}")
-        return False
+    if menu == "登录":
+        if st.button("登录"):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                st.session_state.user = res.user
+                st.rerun()
+            except Exception as e:
+                st.error("登录失败：" + str(e))
+    else:
+        if st.button("注册"):
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": password})
+                st.success("注册成功！请前往邮箱验证（如有需要），然后登录。")
+            except Exception as e:
+                st.error("注册失败：" + str(e))
 
-def github_delete(filepath, commit_msg):
-    if not GITHUB_TOKEN:
-        return False
-    g = Github(GITHUB_TOKEN)
-    try:
-        repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(filepath)
-        repo.delete_file(filepath, commit_msg, contents.sha)
-        return True
-    except:
-        return False
+# 检查登录状态
+if "user" not in st.session_state:
+    login_page()
+    st.stop()
 
-# ---------- 训练计时状态管理 ----------
-def load_training_status():
-    raw = github_read(STATUS_FILE)
-    if raw:
-        try:
-            return json.loads(raw)
-        except:
-            pass
-    return None
+user = st.session_state.user
+# 侧边栏显示用户信息
+with st.sidebar:
+    st.write(f"👤 {user.email}")
+    if st.button("退出登录"):
+        supabase.auth.sign_out()
+        del st.session_state["user"]
+        st.rerun()
 
-def save_training_status(status_dict):
-    github_write(STATUS_FILE, json.dumps(status_dict), "更新训练状态")
+# ---------- 数据库操作辅助函数 ----------
+def load_workouts_for_date(date_obj):
+    date_str = date_obj.isoformat()
+    res = supabase.table("workouts").select("*").eq("user_id", user.id).eq("date", date_str).execute()
+    return res.data
 
-def clear_training_status():
-    github_delete(STATUS_FILE, "清除训练状态")
+def load_all_workouts():
+    res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
+    return res.data
 
-# ---------- 用户配置 ----------
-def load_profile():
-    raw = github_read(PROFILE_FILE)
-    if raw:
-        try:
-            return json.loads(raw)
-        except:
-            pass
-    return {"weight": 70, "height": 175}
+def save_workout(record):
+    record["user_id"] = user.id
+    supabase.table("workouts").insert(record).execute()
 
-def save_profile(profile):
-    github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
+def delete_workout_by_id(workout_id):
+    supabase.table("workouts").delete().eq("id", workout_id).execute()
 
-# ---------- 训练数据读取/保存 ----------
-@st.cache_data(ttl=30)
-def load_data():
-    if not GITHUB_TOKEN:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"])
-    g = Github(GITHUB_TOKEN)
-    try:
-        repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(DATA_FILE)
-        csv_text = contents.decoded_content.decode('utf-8')
-        df = pd.read_csv(StringIO(csv_text))
-        # 确保新列存在
-        for col in ["有氧时长(分钟)", "MET值"]:
-            if col not in df.columns:
-                df[col] = None
-        return df
-    except:
-        return pd.DataFrame(columns=["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"])
+def load_durations_for_date(date_obj):
+    date_str = date_obj.isoformat()
+    res = supabase.table("training_durations").select("duration_min").eq("user_id", user.id).eq("date", date_str).execute()
+    total = 0.0
+    for row in res.data:
+        total += row.get("duration_min", 0)
+    return total
 
-def save_data(df):
-    if not GITHUB_TOKEN:
-        st.error("未配置 GitHub Token，无法保存")
-        return False
-    cols = ["日期", "部位", "动作", "组数", "每组详情", "记录时间", "有氧时长(分钟)", "MET值"]
-    df_to_save = df[cols]
-    return github_write(DATA_FILE, df_to_save.to_csv(index=False), f"训练记录更新 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+def save_training_duration(start_time, end_time, duration_min):
+    supabase.table("training_durations").insert({
+        "user_id": user.id,
+        "date": date.today().isoformat(),
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "duration_min": duration_min
+    }).execute()
 
-# ---------- 组数合并（仅用于力量动作） ----------
+# ---------- 组数合并 ----------
 def compress_details(detail_str):
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
@@ -265,121 +231,85 @@ st.title("💪 量化训练日志")
 # ---------- 训练计时器 ----------
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
-status = load_training_status()
+if "timer_start" not in st.session_state:
+    st.session_state.timer_start = None
+
 now = datetime.now()
-
-if status and status.get("active"):
-    start = datetime.fromisoformat(status["start"])
-    if (now - start).total_seconds() > 86400:
-        clear_training_status()
-        status = None
-
-if not status or not status.get("active"):
-    if st.button("▶️ 开始训练", key="start_training"):
-        save_training_status({"active": True, "start": now.isoformat()})
+if st.session_state.timer_start is None:
+    if st.button("▶️ 开始训练"):
+        st.session_state.timer_start = now
         st.rerun()
 else:
-    start = datetime.fromisoformat(status["start"])
-    elapsed = now - start
+    elapsed = now - st.session_state.timer_start
     mins = int(elapsed.total_seconds() // 60)
     secs = int(elapsed.total_seconds() % 60)
     st.info(f"⏱️ 训练已进行：{mins} 分 {secs} 秒")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("⏹️ 结束训练并保存时长", key="end_training"):
-            end_time = now
+        if st.button("⏹️ 结束训练并保存时长"):
             duration_min = round(elapsed.total_seconds() / 60, 1)
-            new_row = pd.DataFrame([{
-                "日期": date.today().isoformat(),
-                "开始时间": start.isoformat(),
-                "结束时间": end_time.isoformat(),
-                "时长(分钟)": duration_min
-            }])
-            try:
-                old_dur = github_read(DURATION_FILE)
-                if old_dur:
-                    old_df = pd.read_csv(StringIO(old_dur))
-                    new_df = pd.concat([old_df, new_row], ignore_index=True)
-                else:
-                    new_df = new_row
-                github_write(DURATION_FILE, new_df.to_csv(index=False), "保存训练时长")
-                st.success(f"训练时长 {duration_min} 分钟已保存。")
-            except Exception as e:
-                st.error(f"保存时长失败: {e}")
-            finally:
-                clear_training_status()
-                st.rerun()
+            save_training_duration(st.session_state.timer_start, now, duration_min)
+            st.success(f"训练时长 {duration_min} 分钟已保存。")
+            st.session_state.timer_start = None
+            st.rerun()
     with col2:
-        if st.button("❌ 取消训练", key="cancel_training"):
-            clear_training_status()
+        if st.button("❌ 取消训练"):
+            st.session_state.timer_start = None
             st.warning("训练已取消，时长不会保存。")
             st.rerun()
 
 # ---------- 月份导航 ----------
 st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
+if "view_month" not in st.session_state:
+    st.session_state.view_month = date.today().month
+if "view_year" not in st.session_state:
+    st.session_state.view_year = date.today().year
+
 with col1:
     if st.button("◀ 上月"):
-        if "view_month" not in st.session_state:
-            st.session_state.view_month = date.today().month
-        if "view_year" not in st.session_state:
-            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 1:
             st.session_state.view_month = 12
             st.session_state.view_year -= 1
         else:
             st.session_state.view_month -= 1
 with col2:
-    if "view_month" not in st.session_state:
-        st.session_state.view_month = date.today().month
-    if "view_year" not in st.session_state:
-        st.session_state.view_year = date.today().year
     st.markdown(f"### {st.session_state.view_year} 年 {st.session_state.view_month} 月")
 with col3:
     if st.button("下月 ▶"):
-        if "view_month" not in st.session_state:
-            st.session_state.view_month = date.today().month
-        if "view_year" not in st.session_state:
-            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 12:
             st.session_state.view_month = 1
             st.session_state.view_year += 1
         else:
             st.session_state.view_month += 1
 
-# 加载数据
-df_all = load_data()
+# 加载当前用户的所有训练记录
+all_workouts = load_all_workouts()
+df_all = pd.DataFrame(all_workouts)
 if not df_all.empty:
-    df_all["日期"] = pd.to_datetime(df_all["日期"]).dt.date
-    trained_dates = set(df_all["日期"].unique())
+    df_all["date"] = pd.to_datetime(df_all["date"]).dt.date
+    trained_dates = set(df_all["date"].unique())
 else:
     trained_dates = set()
 
-year = st.session_state.get("view_year", date.today().year)
-month = st.session_state.get("view_month", date.today().month)
+year = st.session_state.view_year
+month = st.session_state.view_month
 
 # 删除记录逻辑
-if "delete_target" in st.session_state:
-    target_time = st.session_state["delete_target"]
-    mask = df_all["记录时间"] != target_time
-    if mask.sum() < len(df_all):
-        df_all = df_all[mask]
-        if save_data(df_all):
-            st.success("已删除该记录")
-        else:
-            st.error("删除失败，请重试")
-            st.stop()
-    del st.session_state["delete_target"]
-    st.cache_data.clear()
+if "delete_id" in st.session_state:
+    delete_id = st.session_state.delete_id
+    delete_workout_by_id(delete_id)
+    st.success("已删除")
+    del st.session_state["delete_id"]
     st.rerun()
 
 selected_date = render_calendar(year, month, trained_dates)
 
 # 出勤统计
 if not df_all.empty:
-    month_mask = df_all["日期"].apply(lambda d: d.year == year and d.month == month)
-    attendance = df_all[month_mask]["日期"].nunique()
+    month_mask = df_all["date"].apply(lambda d: d.year == year and d.month == month)
+    attendance = df_all[month_mask]["date"].nunique()
 else:
     attendance = 0
 days_in_month = calendar.monthrange(year, month)[1]
@@ -389,51 +319,38 @@ st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} �
 # ---------- 显示选中日期的详细记录 ----------
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
-if not df_all.empty:
-    day_data = df_all[df_all["日期"] == selected_date]
-else:
-    day_data = pd.DataFrame()
+day_data = df_all[df_all["date"] == selected_date] if not df_all.empty else pd.DataFrame()
 
 if day_data.empty:
     st.info("该日无训练记录")
 else:
-    for part in day_data["部位"].unique():
-        with st.expander(f"🏷️ {part}", expanded=True):
-            part_data = day_data[day_data["部位"] == part]
-            for _, row in part_data.iterrows():
-                ex_type = EXERCISE_TYPE.get(row["动作"], "strength")
-                if ex_type == "strength":
-                    st.markdown(f"**🏋️ {row['动作']}**  |  组数：{int(row['组数'])}")
-                    details = row["每组详情"]
-                    if details:
-                        compressed = compress_details(details)
-                        st.text(compressed)
-                else:
-                    st.markdown(f"**🏃 {row['动作']}**")
-                    duration = row["有氧时长(分钟)"]
-                    met = row["MET值"]
-                    if pd.notna(duration):
-                        st.text(f"时长：{duration} 分钟")
-                    if pd.notna(met):
-                        st.text(f"MET：{met}")
-                if st.button("🗑️ 删除本条", key=f"del_{row['记录时间']}_{row['动作']}"):
-                    st.session_state["delete_target"] = row["记录时间"]
-                    st.rerun()
-                st.markdown("---")
+    for _, row in day_data.iterrows():
+        ex_type = EXERCISE_TYPE.get(row["exercise"], "strength")
+        with st.expander(f"🏷️ {row['body_part']} - {row['exercise']}", expanded=True):
+            if ex_type == "strength":
+                st.write(f"组数：{int(row['set_count'])}")
+                if row["details"]:
+                    st.text(compress_details(row["details"]))
+            else:
+                st.write(f"时长：{row['cardio_duration']} 分钟，MET：{row['met_value']}")
+            if st.button("🗑️ 删除本条", key=f"del_{row['id']}"):
+                st.session_state.delete_id = row["id"]
+                st.rerun()
 
 # ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
     with st.expander("⚙️ 个人设置", expanded=False):
-        profile = load_profile()
-        weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=profile.get("weight", 70), step=1, key="profile_weight")
-        height = st.number_input("身高 (cm)", min_value=100, max_value=250, value=profile.get("height", 175), step=1, key="profile_height")
+        st.write("个人设置（体重、身高）可在这里保存到 Supabase，目前暂存 session")
+        if "weight" not in st.session_state:
+            st.session_state.weight = 70
+        if "height" not in st.session_state:
+            st.session_state.height = 175
+        weight = st.number_input("体重 (kg)", 30, 200, st.session_state.weight, key="profile_weight")
+        height = st.number_input("身高 (cm)", 100, 250, st.session_state.height, key="profile_height")
         if st.button("保存身体数据"):
-            profile["weight"] = weight
-            profile["height"] = height
-            save_profile(profile)
-            st.success("身体数据已保存")
-        st.caption("保存一次即可，后续自动读取。")
-
+            st.session_state.weight = weight
+            st.session_state.height = height
+            st.success("已保存（本次会话有效，重启需重新设置）")
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
     all_exercises = []
@@ -462,14 +379,15 @@ with st.sidebar:
                             weight = st.number_input("重量kg", 0.0, 500.0, 20.0, 2.5, key=f"wt_{part}_{exercise}_{s}")
                         details.append(f"{reps}次×{weight}kg")
                     training_data.append({
-                        "部位": part,
-                        "动作": exercise,
-                        "组数": sets,
-                        "每组详情": "; ".join(details),
-                        "有氧时长(分钟)": None,
-                        "MET值": None
+                        "date": date.today().isoformat(),
+                        "body_part": part,
+                        "exercise": exercise,
+                        "set_count": sets,
+                        "details": "; ".join(details),
+                        "cardio_duration": None,
+                        "met_value": None
                     })
-                else:  # cardio
+                else:
                     duration = st.number_input("时长 (分钟)", 0, 300, 30, key=f"cardio_dur_{part}_{exercise}")
                     met_option = st.selectbox("强度 (MET)", options=list(CARDIO_MET_OPTIONS.keys()), key=f"cardio_met_{part}_{exercise}")
                     if met_option == "自定义":
@@ -477,36 +395,21 @@ with st.sidebar:
                     else:
                         met_val = CARDIO_MET_OPTIONS[met_option]
                     training_data.append({
-                        "部位": part,
-                        "动作": exercise,
-                        "组数": 0,
-                        "每组详情": "",
-                        "有氧时长(分钟)": duration,
-                        "MET值": met_val
+                        "date": date.today().isoformat(),
+                        "body_part": part,
+                        "exercise": exercise,
+                        "set_count": 0,
+                        "details": "",
+                        "cardio_duration": duration,
+                        "met_value": met_val
                     })
 
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-            rows = []
-            for item in training_data:
-                rows.append({
-                    "日期": today_str,
-                    "部位": item["部位"],
-                    "动作": item["动作"],
-                    "组数": item["组数"],
-                    "每组详情": item["每组详情"],
-                    "记录时间": now_time,
-                    "有氧时长(分钟)": item["有氧时长(分钟)"],
-                    "MET值": item["MET值"]
-                })
-            new_df = pd.DataFrame(rows)
-            df_old = load_data()
-            df_combined = pd.concat([df_old, new_df], ignore_index=True)
-            if save_data(df_combined):
-                st.success("保存成功！")
-                st.balloons()
-                st.cache_data.clear()
+            for record in training_data:
+                save_workout(record)
+            st.success("保存成功！")
+            st.balloons()
+            st.rerun()
