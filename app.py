@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import calendar
-import os
 from io import StringIO
 from github import Github, GithubException
 
@@ -67,7 +66,44 @@ def save_data(df):
         st.error(f"保存失败: {e}")
         return False
 
-# ---------- 日历生成相关函数 ----------
+# ---------- 工具函数：组数合并 ----------
+def compress_details(detail_str):
+    """将 '10次×20.0kg; 10次×25.0kg; ...' 合并为：
+    2组×10次×20.0kg
+    1组×10次×25.0kg
+    1组×15次×20.0kg
+    （顺序按首次出现的先后排列）
+    """
+    if pd.isna(detail_str) or detail_str.strip() == "":
+        return ""
+    groups = detail_str.split('; ')
+    # 使用字典记录每个组合的首次出现顺序
+    order_map = {}
+    count_map = {}
+    for idx, g in enumerate(groups):
+        try:
+            reps, weight = g.split('次×')
+            weight = weight.rstrip('kg')
+        except:
+            return detail_str  # 格式异常时原样返回
+        key = (reps, weight)
+        if key not in order_map:
+            order_map[key] = idx
+            count_map[key] = 0
+        count_map[key] += 1
+
+    # 按首次出现的顺序排序
+    sorted_keys = sorted(order_map.keys(), key=lambda k: order_map[k])
+    lines = []
+    for reps, weight in sorted_keys:
+        cnt = count_map[(reps, weight)]
+        if cnt == 1:
+            lines.append(f"1组×{reps}次×{weight}kg")
+        else:
+            lines.append(f"{cnt}组×{reps}次×{weight}kg")
+    return '\n'.join(lines)
+
+# ---------- 日历生成 ----------
 def get_month_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
@@ -91,7 +127,6 @@ def get_month_calendar(year, month, trained_dates):
 
 def render_calendar(year, month, trained_dates):
     cal_data = get_month_calendar(year, month, trained_dates)
-
     st.markdown("""
     <style>
     .calendar { width: 100%; border-collapse: collapse; }
@@ -150,23 +185,30 @@ def render_calendar(year, month, trained_dates):
 st.title("💪 量化训练日志")
 
 # 月份导航
-if "view_month" not in st.session_state:
-    st.session_state.view_month = date.today().month
-if "view_year" not in st.session_state:
-    st.session_state.view_year = date.today().year
-
 col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     if st.button("◀ 上月"):
+        if "view_month" not in st.session_state:
+            st.session_state.view_month = date.today().month
+        if "view_year" not in st.session_state:
+            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 1:
             st.session_state.view_month = 12
             st.session_state.view_year -= 1
         else:
             st.session_state.view_month -= 1
 with col2:
+    if "view_month" not in st.session_state:
+        st.session_state.view_month = date.today().month
+    if "view_year" not in st.session_state:
+        st.session_state.view_year = date.today().year
     st.markdown(f"### {st.session_state.view_year} 年 {st.session_state.view_month} 月")
 with col3:
     if st.button("下月 ▶"):
+        if "view_month" not in st.session_state:
+            st.session_state.view_month = date.today().month
+        if "view_year" not in st.session_state:
+            st.session_state.view_year = date.today().year
         if st.session_state.view_month == 12:
             st.session_state.view_month = 1
             st.session_state.view_year += 1
@@ -181,9 +223,25 @@ if not df_all.empty:
 else:
     trained_dates = set()
 
-year = st.session_state.view_year
-month = st.session_state.view_month
+year = st.session_state.get("view_year", date.today().year)
+month = st.session_state.get("view_month", date.today().month)
 
+# --- 删除记录的逻辑 ---
+if "delete_target" in st.session_state:
+    target_time = st.session_state["delete_target"]
+    mask = df_all["记录时间"] != target_time
+    if mask.sum() < len(df_all):
+        df_all = df_all[mask]
+        if save_data(df_all):
+            st.success("已删除该记录")
+        else:
+            st.error("删除失败，请重试")
+            st.stop()
+    del st.session_state["delete_target"]
+    st.cache_data.clear()
+    st.rerun()
+
+# 渲染日历
 selected_date = render_calendar(year, month, trained_dates)
 
 # 出勤统计
@@ -196,7 +254,7 @@ days_in_month = calendar.monthrange(year, month)[1]
 today_day = date.today().day if year == date.today().year and month == date.today().month else days_in_month
 st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} 天**")
 
-# 显示选中日期详情
+# ---------- 显示选中日期的详细记录 ----------
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
 
@@ -215,12 +273,15 @@ else:
                 st.markdown(f"**🏋️ {row['动作']}**  |  组数：{int(row['组数'])}")
                 details = row["每组详情"]
                 if details:
-                    # 修复：f-string 内不能直接使用反斜杠，先用变量
-                    sep = '\n　'
-                    st.text(f"　{details.replace('; ', sep)}")
+                    compressed = compress_details(details)
+                    st.text(compressed)
+                # 删除按钮
+                if st.button("🗑️ 删除本条", key=f"del_{row['记录时间']}_{row['动作']}"):
+                    st.session_state["delete_target"] = row["记录时间"]
+                    st.rerun()
                 st.markdown("---")
 
-# 侧边栏：快速记录
+# ---------- 侧边栏快速记录 ----------
 with st.sidebar:
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
@@ -231,7 +292,6 @@ with st.sidebar:
             chosen = st.multiselect(f"「{part}」的动作", options=exercises, key=f"record_{part}")
             for ex in chosen:
                 all_exercises.append((part, ex))
-
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -253,13 +313,12 @@ with st.sidebar:
                     "组数": sets,
                     "每组详情": "; ".join(details)
                 })
-
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
             today_str = datetime.now().strftime("%Y-%m-%d")
-            now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
             rows = []
             for item in training_data:
                 rows.append({
@@ -276,3 +335,4 @@ with st.sidebar:
             if save_data(df_combined):
                 st.success("保存成功！")
                 st.balloons()
+                st.cache_data.clear()
