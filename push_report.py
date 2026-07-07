@@ -64,7 +64,6 @@ def load_workout_data():
     return pd.DataFrame()
 
 def load_durations():
-    """返回当天的所有训练时长（分钟）的总和"""
     raw = github_read(DURATION_FILE)
     if not raw:
         return 0.0
@@ -145,7 +144,6 @@ def estimate_calories_met(exercise, sets, body_weight, duration_min=None):
         time_hours = (sets * 2) / 60
     return round(met * body_weight * time_hours, 1)
 
-# ---------- 战报生成 ----------
 def generate_report():
     profile = load_profile()
     body_weight = profile.get("weight", 70)
@@ -159,17 +157,14 @@ def generate_report():
     if today_df.empty:
         return None
 
-    # 1. 优先使用独立时长文件的累计值
     total_min = load_durations()
     if total_min == 0.0:
-        # 2. 若无时长文件，回退到组数估算
         total_min = today_df["组数"].sum() * 2
 
     h = int(total_min // 60)
     m = int(total_min % 60)
     dur_str = f"{h}小时{m}分钟" if h else f"{m}分钟"
 
-    # 总消耗（仅与动作有关，时长参与MET部分）
     total_kcal = 0.0
     for _, row in today_df.iterrows():
         kcal = calc_mechanical_calories(row, body_weight, profile)
