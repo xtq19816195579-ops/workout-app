@@ -1,19 +1,20 @@
+import os
+import requests
 import pandas as pd
 from datetime import datetime
-import requests
-import os
-import json
-from io import StringIO
-from github import Github
+from supabase import create_client, Client
 
 # ---------- 配置 ----------
-PUSHPLUS_TOKEN = "93133ef2ee0b402d9b185fb5b2c23d74"   # 你的 PushPlus token
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
-REPO_NAME = "xtq19816195579-ops/workout-app"
-DATA_FILE = "workout_log.csv"
-PROFILE_FILE = "user_profile.json"
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_ANON_KEY"]
+PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
-# ---------- 位移字典（米）----------
+# 你自己的邮箱（用于定位你的 user_id）
+YOUR_EMAIL = "你的注册邮箱@example.com"
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ---------- 位移字典（与主应用保持一致）----------
 DISPLACEMENT = {
     "杠铃卧推": 0.5, "上斜卧推": 0.5, "哑铃飞鸟": 0.4, "器械卧推": 0.5,
     "夹胸": 0.3, "俯卧撑": 0.3, "哑铃推举": 0.4, "杠铃推举": 0.4,
@@ -24,139 +25,138 @@ DISPLACEMENT = {
     "窄距卧推": 0.4, "绳索下压": 0.3, "哑铃臂屈伸": 0.3,
     "双杠臂屈伸": 0.4, "俯身臂屈伸": 0.3,
     "深蹲": 0.6, "腿举": 0.5, "腿弯举": 0.4, "腿屈伸": 0.4,
-    "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6,
-    # 以下无位移，将用MET兜底
-    "波比跳": 0, "壶铃摆荡": 0, "战绳": 0, "有氧跑步": 0, "跳绳": 0,
-    "平板支撑": 0, "卷腹": 0, "仰卧抬腿": 0, "俄罗斯转体": 0,
-    "悬垂举腿": 0, "健腹轮": 0
+    "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6
 }
 
-# ---------- MET 兜底字典（有氧/自重静态）----------
-MET_DICT = {
-    "波比跳": 8.0, "壶铃摆荡": 7.0, "战绳": 8.0, "有氧跑步": 8.0, "跳绳": 8.0,
-    "平板支撑": 2.5, "卷腹": 3.0, "仰卧抬腿": 3.0, "俄罗斯转体": 3.0,
-    "悬垂举腿": 4.0, "健腹轮": 4.5, "俯卧撑": 3.5  # 俯卧撑也设为MET兜底
-}
+# ---------- 获取你的 user_id ----------
+def get_user_id(email):
+    # 通过 admin API 需要 service_role key，但普通 anon key 无法查询 users 表。
+    # 简易方案：在注册时，你也可以把 user_id 写入一个 profiles 表。
+    # 这里我们假设你已经在 Supabase 中为每个用户创建了 profiles 表（含 email 和 user_id）。
+    # 若没有，请先在 SQL 中执行：
+    # create table if not exists profiles ( user_id uuid primary key references auth.users, email text unique );
+    # 然后在用户注册后通过触发器或应用逻辑同步写入。
+    # 临时方案：直接从 auth.users 表无法用 anon key 查询，所以我们换一种方式：
+    # 你可以手动在 Secrets 中设置 YOUR_USER_ID（去 Supabase Auth 面板复制你的 ID），这样最简单。
+    # 我们先用硬编码方式，请直接在这里粘贴你的 user_id（可省去查询）。
+    pass
 
-# ---------- 通用读取 ----------
-def github_read(filepath):
-    g = Github(GITHUB_TOKEN)
-    try:
-        repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(filepath)
-        return contents.decoded_content.decode('utf-8')
-    except:
-        return None
+# 临时：直接硬编码你的 user_id（从 Supabase 控制台 → Authentication → Users 复制）
+YOUR_USER_ID = "你的UUID"  # 替换
 
-def load_profile():
-    raw = github_read(PROFILE_FILE)
-    if raw:
-        try:
-            return json.loads(raw)
-        except:
-            pass
-    return {"weight": 70}
+# ---------- 数据读取 ----------
+def load_today_workouts():
+    today = datetime.now().strftime("%Y-%m-%d")
+    res = supabase.table("workouts").select("*").eq("user_id", YOUR_USER_ID).eq("date", today).execute()
+    return res.data
 
-def load_workout_data():
-    raw = github_read(DATA_FILE)
-    if raw:
-        return pd.read_csv(StringIO(raw))
-    return pd.DataFrame()
+def load_today_durations():
+    today = datetime.now().strftime("%Y-%m-%d")
+    res = supabase.table("training_durations").select("duration_min").eq("user_id", YOUR_USER_ID).eq("date", today).execute()
+    total = 0.0
+    for row in res.data:
+        total += row.get("duration_min", 0)
+    return total
 
 # ---------- 消耗计算 ----------
-def calc_mechanical_calories(row, body_weight):
-    """基于物理做功计算一组训练消耗（千卡），返回None表示无法计算，需用MET"""
-    exercise = row["动作"]
-    weight_str = row["每组详情"]
-    if pd.isna(weight_str) or not weight_str:
-        return None
+def compress_details(detail_str):
+    if not detail_str:
+        return ""
+    groups = detail_str.split('; ')
+    order_map = {}
+    count_map = {}
+    for idx, g in enumerate(groups):
+        try:
+            reps, weight = g.split('次×')
+            weight = weight.rstrip('kg')
+        except:
+            continue
+        key = (reps, weight)
+        if key not in order_map:
+            order_map[key] = idx
+            count_map[key] = 0
+        count_map[key] += 1
+    sorted_keys = sorted(order_map.keys(), key=lambda k: order_map[k])
+    lines = []
+    for reps, weight in sorted_keys:
+        cnt = count_map[(reps, weight)]
+        if cnt == 1:
+            lines.append(f"1组×{reps}次×{weight}kg")
+        else:
+            lines.append(f"{cnt}组×{reps}次×{weight}kg")
+    return '\n'.join(lines)
 
+def calc_strength_calories(exercise, details, body_weight=70, height=175):
     displacement = DISPLACEMENT.get(exercise, 0.0)
-    if displacement == 0.0:  # 无位移动作，用MET
-        return None
-
+    if displacement == 0.0 or not details:
+        return 0.0
     total_joules = 0
-    groups = weight_str.split('; ')
+    groups = details.split('; ')
     for g in groups:
         try:
             reps, weight_part = g.split('次×')
             weight = float(weight_part.replace('kg', ''))
             reps = int(reps)
-            # 自重动作特殊处理
             if exercise in ["引体向上", "双杠臂屈伸"]:
-                weight = body_weight * 0.9  # 约90%体重
+                weight = body_weight * 0.9
             joules = weight * 9.8 * displacement * reps
             total_joules += joules
         except:
             continue
     if total_joules == 0:
         return 0.0
-    # 人体效率22%，1千卡=4184焦耳
     kcal = total_joules / 0.22 / 4184
     return round(kcal, 2)
 
-def estimate_calories_met(exercise, sets, body_weight, duration_min=None):
-    """MET 兜底计算"""
-    met = MET_DICT.get(exercise, 5.0)
-    if duration_min:
-        time_hours = duration_min / 60
-    else:
-        time_hours = (sets * 2) / 60
-    return round(met * body_weight * time_hours, 1)
+def calc_cardio_calories(duration_min, met_value, body_weight=70):
+    if not duration_min or not met_value:
+        return 0.0
+    return round(met_value * body_weight * (duration_min / 60), 2)
 
 # ---------- 生成战报 ----------
 def generate_report():
-    profile = load_profile()
-    body_weight = profile.get("weight", 70)
-
-    df = load_workout_data()
-    if df.empty:
+    workouts = load_today_workouts()
+    if not workouts:
         return None
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    today_df = df[df["日期"] == today]
-    if today_df.empty:
-        return None
+    total_duration = load_today_durations()
+    if total_duration == 0:
+        # 回退估算
+        strength_sets = sum(row['set_count'] for row in workouts if not row.get('cardio_duration'))
+        cardio_dur = sum(row['cardio_duration'] for row in workouts if row.get('cardio_duration'))
+        total_duration = strength_sets * 2 + cardio_dur
 
-    # 训练时长：优先使用实际时长
-    if "实际时长(分钟)" in today_df.columns:
-        actual_durations = today_df["实际时长(分钟)"].dropna()
-        if not actual_durations.empty:
-            total_min = actual_durations.iloc[0]  # 同一次训练共享同一时长
-        else:
-            total_min = today_df["组数"].sum() * 2
-    else:
-        total_min = today_df["组数"].sum() * 2
-
-    h = int(total_min // 60)
-    m = int(total_min % 60)
+    h = int(total_duration // 60)
+    m = int(total_duration % 60)
     dur_str = f"{h}小时{m}分钟" if h else f"{m}分钟"
 
-    # 总消耗：优先做功模型，否则MET兜底
     total_kcal = 0.0
-    for _, row in today_df.iterrows():
-        exercise = row["动作"]
-        sets = row["组数"]
-        kcal = calc_mechanical_calories(row, body_weight)
-        if kcal is not None:
-            total_kcal += kcal
+    parts = set()
+    actions = []
+    detailed_lines = []
+    for row in workouts:
+        parts.add(row['body_part'])
+        actions.append(row['exercise'])
+        if row.get('cardio_duration'):
+            cal = calc_cardio_calories(row['cardio_duration'], row['met_value'])
+            detailed_lines.append(f"  - {row['body_part']} {row['exercise']}：{row['cardio_duration']} 分钟 (MET {row['met_value']})")
         else:
-            # 有氧/无位移动作，使用MET（传入实际时长的小时数）
-            total_kcal += estimate_calories_met(exercise, sets, body_weight, total_min / 60)
+            cal = calc_strength_calories(row['exercise'], row['details'])
+            detail_compressed = compress_details(row['details'])
+            detailed_lines.append(f"  - {row['body_part']} {row['exercise']}：{int(row['set_count'])}组")
+            if detail_compressed:
+                detailed_lines.append(f"    {detail_compressed.replace(chr(10), chr(10) + '    ')}")
+        total_kcal += cal
 
     total_kcal = round(total_kcal, 1)
 
-    parts = today_df["部位"].unique()
-    actions = today_df["动作"].tolist()
-
-    report = f"【{today} 训练战报】\n"
+    report = f"【{datetime.now().strftime('%Y-%m-%d')} 训练战报】\n"
     report += f"🏋️ 训练部位：{'、'.join(parts)}\n"
     report += f"📊 完成动作：{'、'.join(list(set(actions)))}\n"
-    report += f"⏱️ 训练时长：{dur_str}\n"
-    report += f"🔥 估算消耗：{total_kcal} 千卡（基于体重{body_weight}kg及做功模型）\n"
+    report += f"⏱️ 训练总时长：{dur_str}\n"
+    report += f"🔥 估算消耗：{total_kcal} 千卡\n"
     report += "✅ 详细记录：\n"
-    for _, row in today_df.iterrows():
-        report += f"  - {row['部位']} {row['动作']}：{int(row['组数'])}组\n"
+    report += "\n".join(detailed_lines)
     report += "\n🚀 继续保持，你是最棒的！"
     return report
 
@@ -164,12 +164,7 @@ def push_to_wechat(content):
     if not content:
         return
     url = "http://www.pushplus.plus/send"
-    data = {
-        "token": PUSHPLUS_TOKEN,
-        "title": "训练战报",
-        "content": content,
-        "template": "txt"
-    }
+    data = {"token": PUSHPLUS_TOKEN, "title": "训练战报", "content": content, "template": "txt"}
     resp = requests.post(url, json=data)
     print(f"推送状态：{resp.status_code}, {resp.text}")
 
