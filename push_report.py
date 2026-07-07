@@ -54,7 +54,7 @@ def load_profile():
             return json.loads(raw)
         except:
             pass
-    return {"weight": 70}
+    return {"weight": 70, "height": 175}
 
 def load_workout_data():
     raw = github_read(DATA_FILE)
@@ -63,7 +63,6 @@ def load_workout_data():
     return pd.DataFrame()
 
 def compress_details(detail_str):
-    """合并相同组数的显示，用于战报"""
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
     groups = detail_str.split('; ')
@@ -90,23 +89,34 @@ def compress_details(detail_str):
             lines.append(f"{cnt}组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
-def calc_mechanical_calories(row, body_weight):
+def get_displacement_for_exercise(exercise, profile):
+    """根据身高调整某些动作的位移"""
+    base = DISPLACEMENT.get(exercise, 0.0)
+    if base == 0.0:
+        return base
+    height = profile.get("height", 175)
+    # 引体向上、双杠臂屈伸的位移与身高正相关（约身高的25%）
+    if exercise in ["引体向上", "双杠臂屈伸"]:
+        return round(height * 0.0025, 2)  # 身高(cm) * 0.0025 约为米
+    return base
+
+def calc_mechanical_calories(row, body_weight, profile):
     exercise = row["动作"]
     weight_str = row["每组详情"]
     if pd.isna(weight_str) or not weight_str:
         return None
-    displacement = DISPLACEMENT.get(exercise, 0.0)
+    displacement = get_displacement_for_exercise(exercise, profile)
     if displacement == 0.0:
         return None
     total_joules = 0
     groups = weight_str.split('; ')
     for g in groups:
         try:
-            reps, weight_part = g.split('次×')
+            reps, weight = g.split('次×')
             weight = float(weight_part.replace('kg', ''))
             reps = int(reps)
             if exercise in ["引体向上", "双杠臂屈伸"]:
-                weight = body_weight * 0.9
+                weight = body_weight * 0.9  # 约90%体重
             joules = weight * 9.8 * displacement * reps
             total_joules += joules
         except:
@@ -138,11 +148,13 @@ def generate_report():
     if today_df.empty:
         return None
 
-    # 训练时长
+    # ---------- 叠加一天多次训练的时长 ----------
+    total_min = 0.0
     if "实际时长(分钟)" in today_df.columns:
-        actual_durations = today_df["实际时长(分钟)"].dropna()
-        if not actual_durations.empty:
-            total_min = actual_durations.iloc[0]
+        # 按记录批次去重（同一次训练的多条记录实际时长相同）
+        duration_series = today_df.groupby("记录时间")["实际时长(分钟)"].first().dropna()
+        if not duration_series.empty:
+            total_min = duration_series.sum()
         else:
             total_min = today_df["组数"].sum() * 2
     else:
@@ -152,10 +164,10 @@ def generate_report():
     m = int(total_min % 60)
     dur_str = f"{h}小时{m}分钟" if h else f"{m}分钟"
 
-    # 总消耗
+    # ---------- 总消耗 ----------
     total_kcal = 0.0
     for _, row in today_df.iterrows():
-        kcal = calc_mechanical_calories(row, body_weight)
+        kcal = calc_mechanical_calories(row, body_weight, profile)
         if kcal is not None:
             total_kcal += kcal
         else:
@@ -169,7 +181,7 @@ def generate_report():
     report = f"【{today} 训练战报】\n"
     report += f"🏋️ 训练部位：{'、'.join(parts)}\n"
     report += f"📊 完成动作：{'、'.join(list(set(actions)))}\n"
-    report += f"⏱️ 训练时长：{dur_str}\n"
+    report += f"⏱️ 训练总时长：{dur_str}\n"
     report += f"🔥 估算消耗：{total_kcal} 千卡\n"
     report += "✅ 详细记录：\n"
     for _, row in today_df.iterrows():
