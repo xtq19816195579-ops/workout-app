@@ -95,7 +95,7 @@ def load_profile():
             return json.loads(raw)
         except:
             pass
-    return {"weight": 70}
+    return {"weight": 70, "height": 175}  # 默认体重70kg，身高175cm
 
 def save_profile(profile):
     github_write(PROFILE_FILE, json.dumps(profile), "更新个人设置")
@@ -370,10 +370,12 @@ with st.sidebar:
     with st.expander("⚙️ 个人设置", expanded=False):
         profile = load_profile()
         weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=profile.get("weight", 70), step=1, key="profile_weight")
-        if st.button("保存体重"):
+        height = st.number_input("身高 (cm)", min_value=100, max_value=250, value=profile.get("height", 175), step=1, key="profile_height")
+        if st.button("保存身体数据"):
             profile["weight"] = weight
+            profile["height"] = height
             save_profile(profile)
-            st.success("体重已保存")
+            st.success("身体数据已保存")
 
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
