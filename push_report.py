@@ -5,12 +5,11 @@ from supabase import create_client, Client
 
 # ---------- 配置 ----------
 SUPABASE_URL = os.environ["SUPABASE_URL"]
-# ⚠️ 使用 service_role key 绕过 RLS
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 # 你自己的邮箱（用于定位 user_id）
-YOUR_EMAIL = "你的注册邮箱@example.com"   # 替换为你的实际邮箱
+YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换为你的实际邮箱
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -28,12 +27,16 @@ DISPLACEMENT = {
     "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6
 }
 
-# ---------- 用户查找（利用 admin API）----------
+# ---------- 用户查找（修复 .users 错误）----------
 def get_user_id(email):
-    res = supabase.auth.admin.list_users()
-    for user in res.users:
-        if user.email == email:
-            return user.id
+    try:
+        res = supabase.auth.admin.list_users()
+        # res 是一个列表，每个元素是一个用户字典
+        for user in res:
+            if user.email == email:
+                return user.id
+    except Exception as e:
+        print(f"获取用户列表失败: {e}")
     return None
 
 # ---------- 数据读取 ----------
