@@ -5,18 +5,14 @@ import calendar
 from supabase import create_client, Client
 import streamlit_cookies_controller as cookies
 
-# ---------- 页面配置 ----------
 st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wide")
 
-# ---------- 初始化 Cookies 管理器 ----------
 cookie_manager = cookies.CookieController()
 
-# ---------- Supabase 配置 ----------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------- 训练部位与动作库 ----------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -37,35 +33,25 @@ for part, exercises in BODY_PARTS.items():
             EXERCISE_TYPE[ex] = "strength"
 
 CARDIO_MET_OPTIONS = {
-    "跑步 (8 km/h)": 8.0,
-    "跑步 (10 km/h)": 10.0,
-    "慢跑": 7.0,
-    "跳绳 (中速)": 10.0,
-    "跳绳 (快速)": 12.0,
-    "游泳 (自由泳)": 8.0,
-    "游泳 (蛙泳)": 7.0,
-    "骑行 (中等)": 6.0,
-    "椭圆机": 5.0,
-    "划船机": 7.0,
-    "高强度间歇训练": 12.0,
-    "自定义": None
+    "跑步 (8 km/h)": 8.0, "跑步 (10 km/h)": 10.0, "慢跑": 7.0,
+    "跳绳 (中速)": 10.0, "跳绳 (快速)": 12.0, "游泳 (自由泳)": 8.0,
+    "游泳 (蛙泳)": 7.0, "骑行 (中等)": 6.0, "椭圆机": 5.0,
+    "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# ---------- 认证持久化 ----------
+# ---------- 修复后的认证恢复 ----------
 def restore_session():
-    """尝试从 Cookie 恢复登录，成功则设置 session_state 并返回 True"""
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
         try:
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
-            # 更新 Cookie 中的 refresh token（如果刷新了）
+            supabase.postgrest.auth(res.session.access_token)  # ✅ 设置令牌
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
             return True
         except:
-            # 恢复失败，清除可能无效的 Cookie
             cookie_manager.remove('refresh_token', path='/')
     return False
 
@@ -80,7 +66,7 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                # 保存 refresh_token 到 Cookie（30天有效，路径设为根）
+                supabase.postgrest.auth(res.session.access_token)  # ✅ 设置令牌
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
@@ -94,7 +80,6 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# 初始化登录状态
 if "user" not in st.session_state:
     if not restore_session():
         login_page()
@@ -102,18 +87,19 @@ if "user" not in st.session_state:
 
 user = st.session_state.user
 
-# ---------- 侧边栏：用户信息、退出、个人设置 ----------
+# 侧边栏
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
+        supabase.postgrest.auth(None)  # ✅ 清除令牌
         cookie_manager.remove('refresh_token', path='/')
         for key in ["user", "auth_session"]:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
 
-    # 个人设置（从 Supabase 加载）
+    # 个人设置
     with st.expander("⚙️ 个人设置", expanded=False):
         try:
             profile_res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
@@ -139,47 +125,31 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
-# ---------- 数据库操作辅助函数 ----------
+# 数据库辅助
 def load_all_workouts():
     try:
         res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
         return res.data
-    except Exception as e:
-        st.error(f"加载训练记录失败：{e}")
+    except:
         return []
 
 def save_workout(record):
     record["user_id"] = user.id
-    try:
-        supabase.table("workouts").insert(record).execute()
-        return True
-    except Exception as e:
-        st.error(f"保存训练记录失败：{e}")
-        return False
+    supabase.table("workouts").insert(record).execute()
+    return True
 
 def delete_workout_by_id(workout_id):
-    try:
-        supabase.table("workouts").delete().eq("id", workout_id).execute()
-        return True
-    except Exception as e:
-        st.error(f"删除失败：{e}")
-        return False
+    supabase.table("workouts").delete().eq("id", workout_id).execute()
 
 def save_training_duration(start_time, end_time, duration_min):
-    try:
-        supabase.table("training_durations").insert({
-            "user_id": user.id,
-            "date": date.today().isoformat(),
-            "start_time": start_time.isoformat(),
-            "end_time": end_time.isoformat(),
-            "duration_min": duration_min
-        }).execute()
-        return True
-    except Exception as e:
-        st.error(f"保存时长失败：{e}")
-        return False
+    supabase.table("training_durations").insert({
+        "user_id": user.id,
+        "date": date.today().isoformat(),
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "duration_min": duration_min
+    }).execute()
 
-# ---------- 组数合并 ----------
 def compress_details(detail_str):
     if pd.isna(detail_str) or detail_str.strip() == "":
         return ""
@@ -201,13 +171,9 @@ def compress_details(detail_str):
     lines = []
     for reps, weight in sorted_keys:
         cnt = count_map[(reps, weight)]
-        if cnt == 1:
-            lines.append(f"1组×{reps}次×{weight}kg")
-        else:
-            lines.append(f"{cnt}组×{reps}次×{weight}kg")
+        lines.append(f"{cnt}组×{reps}次×{weight}kg" if cnt > 1 else f"1组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
-# ---------- 日历 ----------
 def get_month_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
@@ -249,7 +215,6 @@ def render_calendar(year, month, trained_dates):
     .status-empty { background: transparent; }
     </style>
     """, unsafe_allow_html=True)
-
     html = '<table class="calendar">'
     html += '<tr><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th>六</th><th>日</th></tr>'
     for week in cal_data:
@@ -272,23 +237,18 @@ def render_calendar(year, month, trained_dates):
         html += '</tr>'
     html += '</table>'
     st.markdown(html, unsafe_allow_html=True)
-
     st.markdown("---")
     st.markdown("#### 选择日期查看详情")
     default_date = date.today()
-    selected_date = st.date_input(
-        "选择日期",
-        value=default_date,
-        min_value=date(year, month, 1),
-        max_value=default_date,
-        key="calendar_date_select"
-    )
+    selected_date = st.date_input("选择日期", value=default_date,
+                                  min_value=date(year, month, 1),
+                                  max_value=default_date, key="calendar_date_select")
     return selected_date
 
-# ---------- 主界面 ----------
+# 主界面
 st.title("💪 量化训练日志")
 
-# ---------- 训练计时器 ----------
+# 计时器
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 if "timer_start" not in st.session_state:
@@ -304,7 +264,6 @@ else:
     mins = int(elapsed.total_seconds() // 60)
     secs = int(elapsed.total_seconds() % 60)
     st.info(f"⏱️ 训练已进行：{mins} 分 {secs} 秒")
-
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⏹️ 结束训练并保存时长"):
@@ -319,14 +278,13 @@ else:
             st.warning("训练已取消，时长不会保存。")
             st.rerun()
 
-# ---------- 月份导航 ----------
+# 月份导航
 st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
 if "view_month" not in st.session_state:
     st.session_state.view_month = date.today().month
 if "view_year" not in st.session_state:
     st.session_state.view_year = date.today().year
-
 with col1:
     if st.button("◀ 上月"):
         if st.session_state.view_month == 1:
@@ -344,7 +302,6 @@ with col3:
         else:
             st.session_state.view_month += 1
 
-# 加载训练数据
 all_workouts = load_all_workouts()
 df_all = pd.DataFrame(all_workouts)
 if not df_all.empty:
@@ -356,17 +313,15 @@ else:
 year = st.session_state.view_year
 month = st.session_state.view_month
 
-# 删除记录逻辑
 if "delete_id" in st.session_state:
     delete_id = st.session_state.delete_id
-    if delete_workout_by_id(delete_id):
-        st.success("已删除")
+    delete_workout_by_id(delete_id)
+    st.success("已删除")
     del st.session_state["delete_id"]
     st.rerun()
 
 selected_date = render_calendar(year, month, trained_dates)
 
-# 出勤统计
 if not df_all.empty:
     month_mask = df_all["date"].apply(lambda d: d.year == year and d.month == month)
     attendance = df_all[month_mask]["date"].nunique()
@@ -376,11 +331,9 @@ days_in_month = calendar.monthrange(year, month)[1]
 today_day = date.today().day if year == date.today().year and month == date.today().month else days_in_month
 st.markdown(f"**本月出勤：{attendance} / {min(today_day, days_in_month)} 天**")
 
-# ---------- 显示选中日期的详细记录 ----------
 st.markdown("---")
 st.subheader(f"📋 {selected_date} 训练详情")
 day_data = df_all[df_all["date"] == selected_date] if not df_all.empty else pd.DataFrame()
-
 if day_data.empty:
     st.info("该日无训练记录")
 else:
@@ -397,25 +350,22 @@ else:
                 st.session_state.delete_id = row["id"]
                 st.rerun()
 
-# ---------- 侧边栏：快速记录 ----------
+# 侧边栏记录表单
 with st.sidebar:
     st.header("📝 快速记录")
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
-    
     if selected_parts:
         for part in selected_parts:
             part_key = f"record_{part}"
             if part_key not in st.session_state:
                 st.session_state[part_key] = []
             st.multiselect(f"「{part}」的动作", options=BODY_PARTS[part], key=part_key)
-
     all_exercises = []
     for part in selected_parts:
         for ex in st.session_state.get(f"record_{part}", []):
             all_exercises.append((part, ex))
-
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -458,17 +408,17 @@ with st.sidebar:
                         "cardio_duration": duration,
                         "met_value": met_val
                     })
-
     if st.button("📥 保存训练记录", type="primary"):
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
-            success = True
             for record in training_data:
-                if not save_workout(record):
-                    success = False
+                try:
+                    save_workout(record)
+                except Exception as e:
+                    st.error(f"保存失败：{e}")
                     break
-            if success:
+            else:
                 st.success("保存成功！")
                 st.balloons()
                 st.rerun()
