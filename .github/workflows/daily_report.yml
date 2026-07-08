@@ -2,7 +2,7 @@ name: Daily Workout Report
 
 on:
   schedule:
-    - cron: '30 14 * * *'   # 22:30 北京时间
+    - cron: '30 14 * * *'   # UTC 14:30 = 北京时间 22:30
   workflow_dispatch:
 
 jobs:
