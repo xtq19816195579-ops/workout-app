@@ -28,7 +28,6 @@ BODY_PARTS = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
-# 动作类型标记
 EXERCISE_TYPE = {}
 for part, exercises in BODY_PARTS.items():
     for ex in exercises:
@@ -64,9 +63,9 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                # 保存 refresh_token 到 Cookie（30天有效）
+                # 保存 refresh_token 到 Cookie（30天有效，使用 max_age）
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   expires_at=datetime.utcnow() + timedelta(days=30))
+                                   max_age=30 * 24 * 60 * 60)
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
@@ -85,10 +84,10 @@ if "user" not in st.session_state:
         try:
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
-            # 更新 Cookie 中的 refresh token（可能会刷新）
+            # 更新 Cookie 中的 refresh_token（如果刷新了）
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   expires_at=datetime.utcnow() + timedelta(days=30))
+                                   max_age=30 * 24 * 60 * 60)
             st.rerun()
         except:
             cookie_manager.remove('refresh_token')
@@ -105,7 +104,6 @@ with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
-        # 清除 Cookie 和 session_state
         cookie_manager.remove('refresh_token')
         for key in ["user", "auth_session"]:
             if key in st.session_state:
@@ -134,14 +132,12 @@ def save_training_duration(start_time, end_time, duration_min):
     }).execute()
 
 def load_profile():
-    """从数据库加载用户身体数据"""
     res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
     if res.data:
         return res.data[0]
     return {"weight": 70, "height": 175}
 
 def save_profile(weight, height):
-    """保存用户身体数据（插入或更新）"""
     supabase.table("profiles").upsert({
         "user_id": user.id,
         "weight": weight,
@@ -368,11 +364,15 @@ else:
 
 # ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
-    # --- 个人设置（从 Supabase 加载）---
+    # --- 个人设置 ---
     with st.expander("⚙️ 个人设置", expanded=False):
         profile = load_profile()
-        weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=float(profile.get("weight", 70)), step=1, key="profile_weight")
-        height = st.number_input("身高 (cm)", min_value=100, max_value=250, value=int(profile.get("height", 175)), step=1, key="profile_height")
+        # 体重：统一使用浮点数
+        weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0,
+                                 value=float(profile.get("weight", 70.0)), step=1.0, key="profile_weight")
+        # 身高：统一使用整数
+        height = st.number_input("身高 (cm)", min_value=100, max_value=250,
+                                 value=int(profile.get("height", 175)), step=1, key="profile_height")
         if st.button("保存身体数据"):
             save_profile(weight, height)
             st.success("身体数据已保存并永久记录！")
