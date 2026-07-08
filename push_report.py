@@ -9,7 +9,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 # 你自己的邮箱（用于定位 user_id）
-YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换为你的实际邮箱
+YOUR_EMAIL = "xtq19816195579@gamil.com"   # ⚠️ 替换为你的实际邮箱
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
