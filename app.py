@@ -48,7 +48,7 @@ CARDIO_MET_OPTIONS = {
     "自定义": None
 }
 
-# ---------- 用户认证函数 ----------
+# ---------- 用户认证函数（修复认证保持）----------
 def login_page():
     st.title("欢迎使用量化训练日志")
     menu = st.radio("选择操作", ["登录", "注册"])
@@ -60,16 +60,35 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
+                # ✅ 修复1：保存认证会话，防止刷新后失效
+                st.session_state.auth_session = {
+                    "access_token": res.session.access_token,
+                    "refresh_token": res.session.refresh_token
+                }
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
     else:
         if st.button("注册"):
             try:
-                res = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("注册成功！请前往邮箱验证（如有需要），然后登录。")
+                supabase.auth.sign_up({"email": email, "password": password})
+                st.success("注册成功！请登录。")
             except Exception as e:
                 st.error("注册失败：" + str(e))
+
+# ✅ 修复2：在每次脚本运行时恢复认证会话
+if "auth_session" in st.session_state:
+    try:
+        supabase.auth.set_session(
+            st.session_state.auth_session["access_token"],
+            st.session_state.auth_session["refresh_token"]
+        )
+    except:
+        # 令牌过期或无效，清除登录状态
+        for key in ["user", "auth_session"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
 
 # 检查登录状态
 if "user" not in st.session_state:
@@ -77,20 +96,19 @@ if "user" not in st.session_state:
     st.stop()
 
 user = st.session_state.user
-# 侧边栏显示用户信息
+
+# 侧边栏显示用户信息与退出
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
-        del st.session_state["user"]
+        # ✅ 清除保存的会话
+        for key in ["user", "auth_session"]:
+            if key in st.session_state:
+                del st.session_state[key]
         st.rerun()
 
 # ---------- 数据库操作辅助函数 ----------
-def load_workouts_for_date(date_obj):
-    date_str = date_obj.isoformat()
-    res = supabase.table("workouts").select("*").eq("user_id", user.id).eq("date", date_str).execute()
-    return res.data
-
 def load_all_workouts():
     res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
     return res.data
@@ -102,14 +120,6 @@ def save_workout(record):
 def delete_workout_by_id(workout_id):
     supabase.table("workouts").delete().eq("id", workout_id).execute()
 
-def load_durations_for_date(date_obj):
-    date_str = date_obj.isoformat()
-    res = supabase.table("training_durations").select("duration_min").eq("user_id", user.id).eq("date", date_str).execute()
-    total = 0.0
-    for row in res.data:
-        total += row.get("duration_min", 0)
-    return total
-
 def save_training_duration(start_time, end_time, duration_min):
     supabase.table("training_durations").insert({
         "user_id": user.id,
@@ -118,6 +128,14 @@ def save_training_duration(start_time, end_time, duration_min):
         "end_time": end_time.isoformat(),
         "duration_min": duration_min
     }).execute()
+
+def load_durations_for_date(date_obj):
+    date_str = date_obj.isoformat()
+    res = supabase.table("training_durations").select("duration_min").eq("user_id", user.id).eq("date", date_str).execute()
+    total = 0.0
+    for row in res.data:
+        total += row.get("duration_min", 0)
+    return total
 
 # ---------- 组数合并 ----------
 def compress_details(detail_str):
@@ -340,7 +358,7 @@ else:
 # ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
     with st.expander("⚙️ 个人设置", expanded=False):
-        st.write("个人设置（体重、身高）可在这里保存到 Supabase，目前暂存 session")
+        st.write("个人设置（体重、身高）暂存于当前会话，后续可同步到 Supabase")
         if "weight" not in st.session_state:
             st.session_state.weight = 70
         if "height" not in st.session_state:
@@ -351,6 +369,7 @@ with st.sidebar:
             st.session_state.weight = weight
             st.session_state.height = height
             st.success("已保存（本次会话有效，重启需重新设置）")
+
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
     all_exercises = []
