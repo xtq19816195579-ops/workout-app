@@ -9,7 +9,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 # 你自己的邮箱（用于定位 user_id）
-YOUR_EMAIL = "xtq19816195579@gmail.com"   # ⚠️ 替换为你的实际邮箱
+YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换为你的实际邮箱
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -31,7 +31,6 @@ DISPLACEMENT = {
 def get_user_id(email):
     try:
         res = supabase.auth.admin.list_users()
-        # res 是一个列表，每个元素是一个用户字典
         for user in res:
             if user.email == email:
                 return user.id
