@@ -62,8 +62,7 @@ def restore_session():
             # 更新 Cookie 中的 refresh token（如果刷新了）
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60,
-                                   secure=True, samesite='Lax')
+                                   max_age=30 * 24 * 60 * 60)
             return True
         except:
             cookie_manager.remove('refresh_token')
@@ -81,8 +80,7 @@ def login_page():
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60,
-                                   secure=True, samesite='Lax')
+                                   max_age=30 * 24 * 60 * 60)
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
@@ -115,7 +113,6 @@ with st.sidebar:
 
     # 个人设置（从 Supabase 加载）
     with st.expander("⚙️ 个人设置", expanded=False):
-        # 读取 profile
         try:
             profile_res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
             if profile_res.data:
@@ -398,30 +395,25 @@ else:
                 st.session_state.delete_id = row["id"]
                 st.rerun()
 
-# ---------- 侧边栏：快速记录（使用 session_state 保存表单数据）----------
+# ---------- 侧边栏：快速记录 ----------
 with st.sidebar:
     st.header("📝 快速记录")
-    # 部位多选
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
     
-    # 根据部位动态生成动作多选
     if selected_parts:
         for part in selected_parts:
-            # 每个部位的动作选择
             part_key = f"record_{part}"
             if part_key not in st.session_state:
                 st.session_state[part_key] = []
             st.multiselect(f"「{part}」的动作", options=BODY_PARTS[part], key=part_key)
 
-    # 构建 all_exercises 列表
     all_exercises = []
     for part in selected_parts:
         for ex in st.session_state.get(f"record_{part}", []):
             all_exercises.append((part, ex))
 
-    # 训练数据临时存储
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -477,5 +469,4 @@ with st.sidebar:
             if success:
                 st.success("保存成功！")
                 st.balloons()
-                # 清空表单？保留部分状态？这里选择不清空，让用户自行更改
                 st.rerun()
