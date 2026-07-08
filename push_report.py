@@ -8,12 +8,11 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
-# 你自己的邮箱（用于定位 user_id）
-YOUR_EMAIL = "xtq19816195579@gmail.com"   # ⚠️ 替换为你的实际邮箱
+YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换！！！
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# ---------- 位移字典 ----------
+# 位移字典（米）
 DISPLACEMENT = {
     "杠铃卧推": 0.5, "上斜卧推": 0.5, "哑铃飞鸟": 0.4, "器械卧推": 0.5,
     "夹胸": 0.3, "俯卧撑": 0.3, "哑铃推举": 0.4, "杠铃推举": 0.4,
@@ -29,10 +28,8 @@ DISPLACEMENT = {
 
 # ---------- 查找用户 ----------
 def get_user_id(email):
-    """通过管理员 API 根据邮箱查找用户 ID"""
     try:
         res = supabase.auth.admin.list_users()
-        # 兼容不同版本返回
         if hasattr(res, 'users'):
             users = res.users
         else:
