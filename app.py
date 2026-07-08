@@ -51,7 +51,24 @@ CARDIO_MET_OPTIONS = {
     "自定义": None
 }
 
-# ---------- 用户认证函数 ----------
+# ---------- 认证持久化 ----------
+def restore_session():
+    """尝试从 Cookie 恢复登录，成功则设置 session_state 并返回 True"""
+    refresh_token = cookie_manager.get('refresh_token')
+    if refresh_token:
+        try:
+            res = supabase.auth.sign_in_with_refresh_token(refresh_token)
+            st.session_state.user = res.user
+            # 更新 Cookie 中的 refresh token（如果刷新了）
+            if res.session:
+                cookie_manager.set('refresh_token', res.session.refresh_token,
+                                   max_age=30 * 24 * 60 * 60,
+                                   secure=True, samesite='Lax')
+            return True
+        except:
+            cookie_manager.remove('refresh_token')
+    return False
+
 def login_page():
     st.title("欢迎使用量化训练日志")
     menu = st.radio("选择操作", ["登录", "注册"])
@@ -63,9 +80,9 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                # 保存 refresh_token 到 Cookie（30天有效，使用 max_age）
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60)
+                                   max_age=30 * 24 * 60 * 60,
+                                   secure=True, samesite='Lax')
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
@@ -77,29 +94,15 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# ---------- 尝试自动恢复登录 ----------
+# 初始化登录状态
 if "user" not in st.session_state:
-    refresh_token = cookie_manager.get('refresh_token')
-    if refresh_token:
-        try:
-            res = supabase.auth.sign_in_with_refresh_token(refresh_token)
-            st.session_state.user = res.user
-            # 更新 Cookie 中的 refresh_token（如果刷新了）
-            if res.session:
-                cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60)
-            st.rerun()
-        except:
-            cookie_manager.remove('refresh_token')
-
-# 检查登录状态
-if "user" not in st.session_state:
-    login_page()
-    st.stop()
+    if not restore_session():
+        login_page()
+        st.stop()
 
 user = st.session_state.user
 
-# ---------- 侧边栏显示用户信息与退出 ----------
+# ---------- 侧边栏：用户信息、退出、个人设置 ----------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
@@ -110,39 +113,72 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
+    # 个人设置（从 Supabase 加载）
+    with st.expander("⚙️ 个人设置", expanded=False):
+        # 读取 profile
+        try:
+            profile_res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
+            if profile_res.data:
+                profile = profile_res.data[0]
+            else:
+                profile = {"weight": 70, "height": 175}
+        except:
+            profile = {"weight": 70, "height": 175}
+
+        weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0,
+                                 value=float(profile.get("weight", 70.0)), step=1.0, key="profile_weight")
+        height = st.number_input("身高 (cm)", min_value=100, max_value=250,
+                                 value=int(profile.get("height", 175)), step=1, key="profile_height")
+        if st.button("保存身体数据"):
+            try:
+                supabase.table("profiles").upsert({
+                    "user_id": user.id,
+                    "weight": weight,
+                    "height": height
+                }).execute()
+                st.success("身体数据已保存")
+            except Exception as e:
+                st.error(f"保存失败：{e}")
+
 # ---------- 数据库操作辅助函数 ----------
 def load_all_workouts():
-    res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
-    return res.data
+    try:
+        res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
+        return res.data
+    except Exception as e:
+        st.error(f"加载训练记录失败：{e}")
+        return []
 
 def save_workout(record):
     record["user_id"] = user.id
-    supabase.table("workouts").insert(record).execute()
+    try:
+        supabase.table("workouts").insert(record).execute()
+        return True
+    except Exception as e:
+        st.error(f"保存训练记录失败：{e}")
+        return False
 
 def delete_workout_by_id(workout_id):
-    supabase.table("workouts").delete().eq("id", workout_id).execute()
+    try:
+        supabase.table("workouts").delete().eq("id", workout_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"删除失败：{e}")
+        return False
 
 def save_training_duration(start_time, end_time, duration_min):
-    supabase.table("training_durations").insert({
-        "user_id": user.id,
-        "date": date.today().isoformat(),
-        "start_time": start_time.isoformat(),
-        "end_time": end_time.isoformat(),
-        "duration_min": duration_min
-    }).execute()
-
-def load_profile():
-    res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
-    if res.data:
-        return res.data[0]
-    return {"weight": 70, "height": 175}
-
-def save_profile(weight, height):
-    supabase.table("profiles").upsert({
-        "user_id": user.id,
-        "weight": weight,
-        "height": height
-    }).execute()
+    try:
+        supabase.table("training_durations").insert({
+            "user_id": user.id,
+            "date": date.today().isoformat(),
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_min": duration_min
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"保存时长失败：{e}")
+        return False
 
 # ---------- 组数合并 ----------
 def compress_details(detail_str):
@@ -274,10 +310,10 @@ else:
     with col1:
         if st.button("⏹️ 结束训练并保存时长"):
             duration_min = round(elapsed.total_seconds() / 60, 1)
-            save_training_duration(st.session_state.timer_start, now, duration_min)
-            st.success(f"训练时长 {duration_min} 分钟已保存。")
-            st.session_state.timer_start = None
-            st.rerun()
+            if save_training_duration(st.session_state.timer_start, now, duration_min):
+                st.success(f"训练时长 {duration_min} 分钟已保存。")
+                st.session_state.timer_start = None
+                st.rerun()
     with col2:
         if st.button("❌ 取消训练"):
             st.session_state.timer_start = None
@@ -309,7 +345,7 @@ with col3:
         else:
             st.session_state.view_month += 1
 
-# 加载当前用户的所有训练记录
+# 加载训练数据
 all_workouts = load_all_workouts()
 df_all = pd.DataFrame(all_workouts)
 if not df_all.empty:
@@ -324,8 +360,8 @@ month = st.session_state.view_month
 # 删除记录逻辑
 if "delete_id" in st.session_state:
     delete_id = st.session_state.delete_id
-    delete_workout_by_id(delete_id)
-    st.success("已删除")
+    if delete_workout_by_id(delete_id):
+        st.success("已删除")
     del st.session_state["delete_id"]
     st.rerun()
 
@@ -362,31 +398,30 @@ else:
                 st.session_state.delete_id = row["id"]
                 st.rerun()
 
-# ---------- 侧边栏：快速记录 + 个人设置 ----------
+# ---------- 侧边栏：快速记录（使用 session_state 保存表单数据）----------
 with st.sidebar:
-    # --- 个人设置 ---
-    with st.expander("⚙️ 个人设置", expanded=False):
-        profile = load_profile()
-        # 体重：统一使用浮点数
-        weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0,
-                                 value=float(profile.get("weight", 70.0)), step=1.0, key="profile_weight")
-        # 身高：统一使用整数
-        height = st.number_input("身高 (cm)", min_value=100, max_value=250,
-                                 value=int(profile.get("height", 175)), step=1, key="profile_height")
-        if st.button("保存身体数据"):
-            save_profile(weight, height)
-            st.success("身体数据已保存并永久记录！")
-
     st.header("📝 快速记录")
+    # 部位多选
+    if "record_parts" not in st.session_state:
+        st.session_state.record_parts = []
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
-    all_exercises = []
+    
+    # 根据部位动态生成动作多选
     if selected_parts:
         for part in selected_parts:
-            exercises = BODY_PARTS[part]
-            chosen = st.multiselect(f"「{part}」的动作", options=exercises, key=f"record_{part}")
-            for ex in chosen:
-                all_exercises.append((part, ex))
+            # 每个部位的动作选择
+            part_key = f"record_{part}"
+            if part_key not in st.session_state:
+                st.session_state[part_key] = []
+            st.multiselect(f"「{part}」的动作", options=BODY_PARTS[part], key=part_key)
 
+    # 构建 all_exercises 列表
+    all_exercises = []
+    for part in selected_parts:
+        for ex in st.session_state.get(f"record_{part}", []):
+            all_exercises.append((part, ex))
+
+    # 训练数据临时存储
     training_data = []
     if all_exercises:
         st.markdown("### 填写详情")
@@ -434,8 +469,13 @@ with st.sidebar:
         if not training_data:
             st.warning("请先选择部位和动作")
         else:
+            success = True
             for record in training_data:
-                save_workout(record)
-            st.success("保存成功！")
-            st.balloons()
-            st.rerun()
+                if not save_workout(record):
+                    success = False
+                    break
+            if success:
+                st.success("保存成功！")
+                st.balloons()
+                # 清空表单？保留部分状态？这里选择不清空，让用户自行更改
+                st.rerun()
