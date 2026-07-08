@@ -49,7 +49,6 @@ def restore_session():
         try:
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
-            # ✅ 保存 access_token
             st.session_state.access_token = res.session.access_token
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
@@ -70,7 +69,7 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                st.session_state.access_token = res.session.access_token   # ✅ 保存
+                st.session_state.access_token = res.session.access_token
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
@@ -84,15 +83,12 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# 初始化登录状态
 if "user" not in st.session_state:
     if not restore_session():
         login_page()
         st.stop()
 
 user = st.session_state.user
-
-# ✅ 关键：为后续所有请求设置用户令牌（每次脚本运行都执行）
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
@@ -158,13 +154,18 @@ def delete_workout_by_id(workout_id):
     supabase.table("workouts").delete().eq("id", workout_id).execute()
 
 def save_training_duration(start_time, end_time, duration_min):
-    supabase.table("training_durations").insert({
-        "user_id": user.id,
-        "date": date.today().isoformat(),
-        "start_time": start_time.isoformat(),
-        "end_time": end_time.isoformat(),
-        "duration_min": duration_min
-    }).execute()
+    try:
+        supabase.table("training_durations").insert({
+            "user_id": user.id,
+            "date": date.today().isoformat(),
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "duration_min": duration_min
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"保存时长失败：{e}")
+        return False
 
 def compress_details(detail_str):
     if pd.isna(detail_str) or detail_str.strip() == "":
@@ -190,7 +191,7 @@ def compress_details(detail_str):
         lines.append(f"{cnt}组×{reps}次×{weight}kg" if cnt > 1 else f"1组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
-# ---------- 日历与界面（保持不变）----------
+# ---------- 日历与界面 ----------
 def get_month_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
@@ -265,7 +266,7 @@ def render_calendar(year, month, trained_dates):
 # 主界面
 st.title("💪 量化训练日志")
 
-# 计时器
+# 计时器（已修复）
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 if "timer_start" not in st.session_state:
@@ -289,6 +290,7 @@ else:
                 st.success(f"训练时长 {duration_min} 分钟已保存。")
                 st.session_state.timer_start = None
                 st.rerun()
+            # 若失败，保留错误提示，不重置计时器
     with col2:
         if st.button("❌ 取消训练"):
             st.session_state.timer_start = None
