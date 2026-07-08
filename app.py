@@ -11,7 +11,11 @@ cookie_manager = cookies.CookieController()
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
+SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# 用于操作 profiles 表，绕过 RLS
+supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else None
 
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
@@ -39,14 +43,14 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# ---------- 修复后的认证恢复 ----------
+# ---------- 认证恢复（保留，用于其他表） ----------
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
         try:
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
-            supabase.postgrest.auth(res.session.access_token)  # ✅ 设置令牌
+            supabase.postgrest.auth(res.session.access_token)
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
@@ -66,7 +70,7 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                supabase.postgrest.auth(res.session.access_token)  # ✅ 设置令牌
+                supabase.postgrest.auth(res.session.access_token)
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
@@ -87,24 +91,27 @@ if "user" not in st.session_state:
 
 user = st.session_state.user
 
-# 侧边栏
+# ---------- 侧边栏 ----------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
-        supabase.postgrest.auth(None)  # ✅ 清除令牌
+        supabase.postgrest.auth(None)
         cookie_manager.remove('refresh_token', path='/')
         for key in ["user", "auth_session"]:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
 
-    # 个人设置
+    # 个人设置（使用 service key 客户端，绕过 RLS）
     with st.expander("⚙️ 个人设置", expanded=False):
         try:
-            profile_res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
-            if profile_res.data:
-                profile = profile_res.data[0]
+            if supabase_service:
+                profile_res = supabase_service.table("profiles").select("*").eq("user_id", user.id).execute()
+                if profile_res.data:
+                    profile = profile_res.data[0]
+                else:
+                    profile = {"weight": 70, "height": 175}
             else:
                 profile = {"weight": 70, "height": 175}
         except:
@@ -116,16 +123,19 @@ with st.sidebar:
                                  value=int(profile.get("height", 175)), step=1, key="profile_height")
         if st.button("保存身体数据"):
             try:
-                supabase.table("profiles").upsert({
-                    "user_id": user.id,
-                    "weight": weight,
-                    "height": height
-                }).execute()
-                st.success("身体数据已保存")
+                if supabase_service:
+                    supabase_service.table("profiles").upsert({
+                        "user_id": user.id,
+                        "weight": weight,
+                        "height": height
+                    }).execute()
+                    st.success("身体数据已保存")
+                else:
+                    st.error("服务配置缺失，请联系管理员")
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
-# 数据库辅助
+# ---------- 数据库操作（其他表使用用户令牌）----------
 def load_all_workouts():
     try:
         res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
