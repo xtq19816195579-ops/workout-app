@@ -1,11 +1,15 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import calendar
 from supabase import create_client, Client
+import streamlit_cookies_controller as cookies
 
 # ---------- 页面配置 ----------
 st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wide")
+
+# ---------- 初始化 Cookies 管理器 ----------
+cookie_manager = cookies.CookieController()
 
 # ---------- Supabase 配置 ----------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -24,7 +28,7 @@ BODY_PARTS = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
-# 动作类型标记：strength 或 cardio
+# 动作类型标记
 EXERCISE_TYPE = {}
 for part, exercises in BODY_PARTS.items():
     for ex in exercises:
@@ -48,7 +52,7 @@ CARDIO_MET_OPTIONS = {
     "自定义": None
 }
 
-# ---------- 用户认证函数（修复认证保持）----------
+# ---------- 用户认证函数 ----------
 def login_page():
     st.title("欢迎使用量化训练日志")
     menu = st.radio("选择操作", ["登录", "注册"])
@@ -60,11 +64,9 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                # ✅ 修复1：保存认证会话，防止刷新后失效
-                st.session_state.auth_session = {
-                    "access_token": res.session.access_token,
-                    "refresh_token": res.session.refresh_token
-                }
+                # 保存 refresh_token 到 Cookie（30天有效）
+                cookie_manager.set('refresh_token', res.session.refresh_token,
+                                   expires_at=datetime.utcnow() + timedelta(days=30))
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
@@ -76,19 +78,20 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# ✅ 修复2：在每次脚本运行时恢复认证会话
-if "auth_session" in st.session_state:
-    try:
-        supabase.auth.set_session(
-            st.session_state.auth_session["access_token"],
-            st.session_state.auth_session["refresh_token"]
-        )
-    except:
-        # 令牌过期或无效，清除登录状态
-        for key in ["user", "auth_session"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()
+# ---------- 尝试自动恢复登录 ----------
+if "user" not in st.session_state:
+    refresh_token = cookie_manager.get('refresh_token')
+    if refresh_token:
+        try:
+            res = supabase.auth.sign_in_with_refresh_token(refresh_token)
+            st.session_state.user = res.user
+            # 更新 Cookie 中的 refresh token（可能会刷新）
+            if res.session:
+                cookie_manager.set('refresh_token', res.session.refresh_token,
+                                   expires_at=datetime.utcnow() + timedelta(days=30))
+            st.rerun()
+        except:
+            cookie_manager.remove('refresh_token')
 
 # 检查登录状态
 if "user" not in st.session_state:
@@ -97,12 +100,13 @@ if "user" not in st.session_state:
 
 user = st.session_state.user
 
-# 侧边栏显示用户信息与退出
+# ---------- 侧边栏显示用户信息与退出 ----------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
-        # ✅ 清除保存的会话
+        # 清除 Cookie 和 session_state
+        cookie_manager.remove('refresh_token')
         for key in ["user", "auth_session"]:
             if key in st.session_state:
                 del st.session_state[key]
@@ -129,13 +133,20 @@ def save_training_duration(start_time, end_time, duration_min):
         "duration_min": duration_min
     }).execute()
 
-def load_durations_for_date(date_obj):
-    date_str = date_obj.isoformat()
-    res = supabase.table("training_durations").select("duration_min").eq("user_id", user.id).eq("date", date_str).execute()
-    total = 0.0
-    for row in res.data:
-        total += row.get("duration_min", 0)
-    return total
+def load_profile():
+    """从数据库加载用户身体数据"""
+    res = supabase.table("profiles").select("*").eq("user_id", user.id).execute()
+    if res.data:
+        return res.data[0]
+    return {"weight": 70, "height": 175}
+
+def save_profile(weight, height):
+    """保存用户身体数据（插入或更新）"""
+    supabase.table("profiles").upsert({
+        "user_id": user.id,
+        "weight": weight,
+        "height": height
+    }).execute()
 
 # ---------- 组数合并 ----------
 def compress_details(detail_str):
@@ -357,18 +368,14 @@ else:
 
 # ---------- 侧边栏：快速记录 + 个人设置 ----------
 with st.sidebar:
+    # --- 个人设置（从 Supabase 加载）---
     with st.expander("⚙️ 个人设置", expanded=False):
-        st.write("个人设置（体重、身高）暂存于当前会话，后续可同步到 Supabase")
-        if "weight" not in st.session_state:
-            st.session_state.weight = 70
-        if "height" not in st.session_state:
-            st.session_state.height = 175
-        weight = st.number_input("体重 (kg)", 30, 200, st.session_state.weight, key="profile_weight")
-        height = st.number_input("身高 (cm)", 100, 250, st.session_state.height, key="profile_height")
+        profile = load_profile()
+        weight = st.number_input("体重 (kg)", min_value=30, max_value=200, value=float(profile.get("weight", 70)), step=1, key="profile_weight")
+        height = st.number_input("身高 (cm)", min_value=100, max_value=250, value=int(profile.get("height", 175)), step=1, key="profile_height")
         if st.button("保存身体数据"):
-            st.session_state.weight = weight
-            st.session_state.height = height
-            st.success("已保存（本次会话有效，重启需重新设置）")
+            save_profile(weight, height)
+            st.success("身体数据已保存并永久记录！")
 
     st.header("📝 快速记录")
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
