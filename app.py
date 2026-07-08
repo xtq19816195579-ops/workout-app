@@ -62,10 +62,11 @@ def restore_session():
             # 更新 Cookie 中的 refresh token（如果刷新了）
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60)
+                                   max_age=30 * 24 * 60 * 60, path='/')
             return True
         except:
-            cookie_manager.remove('refresh_token')
+            # 恢复失败，清除可能无效的 Cookie
+            cookie_manager.remove('refresh_token', path='/')
     return False
 
 def login_page():
@@ -79,8 +80,9 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
+                # 保存 refresh_token 到 Cookie（30天有效，路径设为根）
                 cookie_manager.set('refresh_token', res.session.refresh_token,
-                                   max_age=30 * 24 * 60 * 60)
+                                   max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
             except Exception as e:
                 st.error("登录失败：" + str(e))
@@ -105,7 +107,7 @@ with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
-        cookie_manager.remove('refresh_token')
+        cookie_manager.remove('refresh_token', path='/')
         for key in ["user", "auth_session"]:
             if key in st.session_state:
                 del st.session_state[key]
