@@ -14,7 +14,6 @@ SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
 SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-# 用于操作 profiles 表，绕过 RLS
 supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else None
 
 BODY_PARTS = {
@@ -43,14 +42,15 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# ---------- 认证恢复（保留，用于其他表） ----------
+# ---------- 认证持久化 ----------
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
         try:
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
-            supabase.postgrest.auth(res.session.access_token)
+            # ✅ 保存 access_token
+            st.session_state.access_token = res.session.access_token
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
@@ -70,7 +70,7 @@ def login_page():
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
-                supabase.postgrest.auth(res.session.access_token)
+                st.session_state.access_token = res.session.access_token   # ✅ 保存
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
@@ -84,12 +84,17 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
+# 初始化登录状态
 if "user" not in st.session_state:
     if not restore_session():
         login_page()
         st.stop()
 
 user = st.session_state.user
+
+# ✅ 关键：为后续所有请求设置用户令牌（每次脚本运行都执行）
+if "access_token" in st.session_state:
+    supabase.postgrest.auth(st.session_state.access_token)
 
 # ---------- 侧边栏 ----------
 with st.sidebar:
@@ -98,12 +103,12 @@ with st.sidebar:
         supabase.auth.sign_out()
         supabase.postgrest.auth(None)
         cookie_manager.remove('refresh_token', path='/')
-        for key in ["user", "auth_session"]:
+        for key in ["user", "access_token"]:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
 
-    # 个人设置（使用 service key 客户端，绕过 RLS）
+    # 个人设置（使用管理员客户端）
     with st.expander("⚙️ 个人设置", expanded=False):
         try:
             if supabase_service:
@@ -131,16 +136,17 @@ with st.sidebar:
                     }).execute()
                     st.success("身体数据已保存")
                 else:
-                    st.error("服务配置缺失，请联系管理员")
+                    st.error("服务配置缺失")
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
-# ---------- 数据库操作（其他表使用用户令牌）----------
+# ---------- 数据库操作 ----------
 def load_all_workouts():
     try:
         res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
         return res.data
-    except:
+    except Exception as e:
+        st.error(f"加载训练记录失败：{e}")
         return []
 
 def save_workout(record):
@@ -184,6 +190,7 @@ def compress_details(detail_str):
         lines.append(f"{cnt}组×{reps}次×{weight}kg" if cnt > 1 else f"1组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
+# ---------- 日历与界面（保持不变）----------
 def get_month_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
