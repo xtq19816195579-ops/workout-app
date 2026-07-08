@@ -1,20 +1,20 @@
 import os
 import requests
-import pandas as pd
 from datetime import datetime
 from supabase import create_client, Client
 
 # ---------- 配置 ----------
 SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_ANON_KEY"]
+# ⚠️ 使用 service_role key 绕过 RLS
+SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
-# 你自己的邮箱（用于定位你的 user_id）
-YOUR_EMAIL = "你的注册邮箱@example.com"
+# 你自己的邮箱（用于定位 user_id）
+YOUR_EMAIL = "你的注册邮箱@example.com"   # 替换为你的实际邮箱
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# ---------- 位移字典（与主应用保持一致）----------
+# ---------- 位移字典 ----------
 DISPLACEMENT = {
     "杠铃卧推": 0.5, "上斜卧推": 0.5, "哑铃飞鸟": 0.4, "器械卧推": 0.5,
     "夹胸": 0.3, "俯卧撑": 0.3, "哑铃推举": 0.4, "杠铃推举": 0.4,
@@ -28,34 +28,24 @@ DISPLACEMENT = {
     "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6
 }
 
-# ---------- 获取你的 user_id ----------
+# ---------- 用户查找（利用 admin API）----------
 def get_user_id(email):
-    # 通过 admin API 需要 service_role key，但普通 anon key 无法查询 users 表。
-    # 简易方案：在注册时，你也可以把 user_id 写入一个 profiles 表。
-    # 这里我们假设你已经在 Supabase 中为每个用户创建了 profiles 表（含 email 和 user_id）。
-    # 若没有，请先在 SQL 中执行：
-    # create table if not exists profiles ( user_id uuid primary key references auth.users, email text unique );
-    # 然后在用户注册后通过触发器或应用逻辑同步写入。
-    # 临时方案：直接从 auth.users 表无法用 anon key 查询，所以我们换一种方式：
-    # 你可以手动在 Secrets 中设置 YOUR_USER_ID（去 Supabase Auth 面板复制你的 ID），这样最简单。
-    # 我们先用硬编码方式，请直接在这里粘贴你的 user_id（可省去查询）。
-    pass
-
-# 临时：直接硬编码你的 user_id（从 Supabase 控制台 → Authentication → Users 复制）
-YOUR_USER_ID = "6e64e9cc-aebc-48ca-8496-8e177b87c0be"  # 替换
+    res = supabase.auth.admin.list_users()
+    for user in res.users:
+        if user.email == email:
+            return user.id
+    return None
 
 # ---------- 数据读取 ----------
-def load_today_workouts():
+def load_today_workouts(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
-    res = supabase.table("workouts").select("*").eq("user_id", YOUR_USER_ID).eq("date", today).execute()
+    res = supabase.table("workouts").select("*").eq("user_id", user_id).eq("date", today).execute()
     return res.data
 
-def load_today_durations():
+def load_today_durations(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
-    res = supabase.table("training_durations").select("duration_min").eq("user_id", YOUR_USER_ID).eq("date", today).execute()
-    total = 0.0
-    for row in res.data:
-        total += row.get("duration_min", 0)
+    res = supabase.table("training_durations").select("duration_min").eq("user_id", user_id).eq("date", today).execute()
+    total = sum(row["duration_min"] for row in res.data)
     return total
 
 # ---------- 消耗计算 ----------
@@ -80,13 +70,10 @@ def compress_details(detail_str):
     lines = []
     for reps, weight in sorted_keys:
         cnt = count_map[(reps, weight)]
-        if cnt == 1:
-            lines.append(f"1组×{reps}次×{weight}kg")
-        else:
-            lines.append(f"{cnt}组×{reps}次×{weight}kg")
+        lines.append(f"{cnt}组×{reps}次×{weight}kg" if cnt > 1 else f"1组×{reps}次×{weight}kg")
     return '\n'.join(lines)
 
-def calc_strength_calories(exercise, details, body_weight=70, height=175):
+def calc_strength_calories(exercise, details, body_weight=70):
     displacement = DISPLACEMENT.get(exercise, 0.0)
     if displacement == 0.0 or not details:
         return 0.0
@@ -105,8 +92,7 @@ def calc_strength_calories(exercise, details, body_weight=70, height=175):
             continue
     if total_joules == 0:
         return 0.0
-    kcal = total_joules / 0.22 / 4184
-    return round(kcal, 2)
+    return round(total_joules / 0.22 / 4184, 2)
 
 def calc_cardio_calories(duration_min, met_value, body_weight=70):
     if not duration_min or not met_value:
@@ -115,13 +101,17 @@ def calc_cardio_calories(duration_min, met_value, body_weight=70):
 
 # ---------- 生成战报 ----------
 def generate_report():
-    workouts = load_today_workouts()
+    user_id = get_user_id(YOUR_EMAIL)
+    if not user_id:
+        print("未找到该邮箱对应的用户")
+        return None
+
+    workouts = load_today_workouts(user_id)
     if not workouts:
         return None
 
-    total_duration = load_today_durations()
+    total_duration = load_today_durations(user_id)
     if total_duration == 0:
-        # 回退估算
         strength_sets = sum(row['set_count'] for row in workouts if not row.get('cardio_duration'))
         cardio_dur = sum(row['cardio_duration'] for row in workouts if row.get('cardio_duration'))
         total_duration = strength_sets * 2 + cardio_dur
