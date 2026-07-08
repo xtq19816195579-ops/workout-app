@@ -8,7 +8,7 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
-YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换！！！
+YOUR_EMAIL = "xtq19816195579@gmail.com"   # ⚠️ 替换！！！
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
