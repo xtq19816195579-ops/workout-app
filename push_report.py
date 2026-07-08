@@ -9,7 +9,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 PUSHPLUS_TOKEN = os.environ["PUSHPLUS_TOKEN"]
 
 # 你自己的邮箱（用于定位 user_id）
-YOUR_EMAIL = "xtq19816195579@gamil.com"   # ⚠️ 替换为你的实际邮箱
+YOUR_EMAIL = "你的注册邮箱@example.com"   # ⚠️ 替换为你的实际邮箱
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
@@ -27,18 +27,24 @@ DISPLACEMENT = {
     "箭步蹲": 0.5, "罗马尼亚硬拉": 0.6
 }
 
-# ---------- 用户查找（修复 .users 错误）----------
+# ---------- 查找用户 ----------
 def get_user_id(email):
+    """通过管理员 API 根据邮箱查找用户 ID"""
     try:
         res = supabase.auth.admin.list_users()
-        for user in res:
+        # 兼容不同版本返回
+        if hasattr(res, 'users'):
+            users = res.users
+        else:
+            users = res
+        for user in users:
             if user.email == email:
                 return user.id
     except Exception as e:
         print(f"获取用户列表失败: {e}")
     return None
 
-# ---------- 数据读取 ----------
+# ---------- 读取数据 ----------
 def load_today_workouts(user_id):
     today = datetime.now().strftime("%Y-%m-%d")
     res = supabase.table("workouts").select("*").eq("user_id", user_id).eq("date", today).execute()
