@@ -51,6 +51,7 @@ def restore_session():
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
             st.session_state.access_token = res.session.access_token
+            # 关键修复：将 access_token 绑定到 Supabase 客户端
             supabase.postgrest.auth(res.session.access_token)
             cookie_manager.set('refresh_token', res.session.refresh_token,
                                max_age=30 * 24 * 60 * 60, path='/')
@@ -439,7 +440,6 @@ else:
             if ex_type == "strength":
                 st.write(f"组数：{int(row['set_count'])}")
                 if row["details"]:
-                    # 压缩显示相同组数
                     detail_str = row["details"]
                     groups = detail_str.split('; ')
                     order_map = {}
