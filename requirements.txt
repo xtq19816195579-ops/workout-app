@@ -1,5 +1,5 @@
 streamlit
-pandas
-PyGithub
 supabase
+pandas
+requests
 streamlit-cookies-controller
