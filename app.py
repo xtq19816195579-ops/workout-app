@@ -16,14 +16,6 @@ SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 # 仅使用匿名客户端，所有操作通过用户 Token 进行 RLS 控制
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# -------------------- 数据表结构（供参考） --------------------
-# profiles 表需有 user_id (uuid, unique), weight (float4), height (float4)
-# user_push_settings 表需有 user_id (uuid, unique), pushplus_token (text), is_enabled (bool, default true)
-# 请确保已执行 RLS 策略：
-#   ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-#   CREATE POLICY "..." ON profiles FOR ... USING (auth.uid() = user_id);
-#   同理 user_push_settings 也需开启 RLS。
-
 # -------------------- 动作库 --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
@@ -106,7 +98,6 @@ if "user" not in st.session_state:
         st.stop()
 
 user = st.session_state.user
-# 确保 token 绑定
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
@@ -124,7 +115,6 @@ with st.sidebar:
 
     # 个人设置（使用用户 Token）
     with st.expander("⚙️ 个人设置", expanded=False):
-        # 读取当前用户的身体数据
         try:
             profile_res = supabase.table("profiles").select("weight", "height").eq("user_id", user.id).execute()
             if profile_res.data:
@@ -144,14 +134,13 @@ with st.sidebar:
                 data = {"user_id": user.id, "weight": weight, "height": height}
                 supabase.table("profiles").upsert(data).execute()
                 st.success("身体数据已保存")
-                st.rerun()   # 刷新显示最新值
+                st.rerun()
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
     # 推送设置（多用户推送）
     with st.expander("📲 微信推送设置", expanded=False):
         try:
-            # 读取当前用户的推送设置
             push_res = supabase.table("user_push_settings").select("pushplus_token", "is_enabled").eq("user_id", user.id).execute()
             if push_res.data:
                 push_data = push_res.data[0]
@@ -194,9 +183,8 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"导出失败：{e}")
 
-    # 训练记录表单（在侧边栏，使用 session_state 持久化）
+    # 训练记录表单（所有控件 key 绑定 session_state）
     st.header("📝 快速记录")
-    # 为了保留表单数据，所有控件 key 必须固定
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
     selected_parts = st.multiselect("1️⃣ 选择部位", options=list(BODY_PARTS.keys()), key="record_parts")
@@ -268,10 +256,10 @@ with st.sidebar:
                 st.balloons()
                 st.rerun()
 
-# -------------------- 主界面 --------------------
+# -------------------- 主界面：计时器与日历 --------------------
 st.title("💪 量化训练日志")
 
-# 计时器（保留 session_state，不重置表单）
+# 计时器（不影响侧边栏数据）
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 if "timer_start" not in st.session_state:
@@ -334,7 +322,6 @@ with col3:
         else:
             st.session_state.view_month += 1
 
-# 加载数据（自动过滤当前用户）
 def load_all_workouts():
     try:
         res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
@@ -354,7 +341,6 @@ else:
 year = st.session_state.view_year
 month = st.session_state.view_month
 
-# 删除处理
 if "delete_id" in st.session_state:
     delete_id = st.session_state.delete_id
     supabase.table("workouts").delete().eq("id", delete_id).execute()
@@ -362,7 +348,6 @@ if "delete_id" in st.session_state:
     del st.session_state["delete_id"]
     st.rerun()
 
-# 渲染日历
 def render_calendar(year, month, trained_dates):
     cal = calendar.monthcalendar(year, month)
     today = date.today()
@@ -448,14 +433,13 @@ day_data = df_all[df_all["date"] == selected_date] if not df_all.empty else pd.D
 if day_data.empty:
     st.info("该日无训练记录")
 else:
-    # 合并显示
     for _, row in day_data.iterrows():
         ex_type = EXERCISE_TYPE.get(row["exercise"], "strength")
         with st.expander(f"🏷️ {row['body_part']} - {row['exercise']}", expanded=True):
             if ex_type == "strength":
                 st.write(f"组数：{int(row['set_count'])}")
                 if row["details"]:
-                    # 压缩显示
+                    # 压缩显示相同组数
                     detail_str = row["details"]
                     groups = detail_str.split('; ')
                     order_map = {}
