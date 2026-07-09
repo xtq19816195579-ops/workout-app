@@ -209,7 +209,6 @@ def login_page():
                 st.error(f"注册失败：{e}")
 
 # ==================== URL 参数解析与自动登录（带详细调试） ====================
-# 注意：test=1 已被测试逻辑提前捕获，不会走到这里
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
@@ -242,19 +241,17 @@ if wechat_openid and "user" not in st.session_state:
         except Exception as e:
             error_msg = str(e)
             st.write(f"登录失败: {error_msg}")
-            # 2. 登录失败，尝试注册
-            try:
-                res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
-                if res.user:
-                    st.write("注册成功，正在尝试自动登录...")
-                    # 如果有 service role key，自动确认邮箱
-                    if supabase_admin:
-                        try:
-                            supabase_admin.auth.admin.update_user_by_id(res.user.id, {"email_confirm": True})
+            # 如果是邮箱未确认，且有 admin 客户端，尝试自动确认
+            if "Email not confirmed" in error_msg and supabase_admin:
+                try:
+                    # 查找用户ID
+                    user_list = supabase_admin.auth.admin.list_users()
+                    for user in user_list.users:
+                        if user.email == email:
+                            supabase_admin.auth.admin.update_user_by_id(user.id, {"email_confirm": True})
                             st.write("已自动确认邮箱")
-                        except Exception as confirm_e:
-                            st.write(f"自动确认邮箱失败: {confirm_e}")
-                    # 注册后立即登录
+                            break
+                    # 重新尝试登录
                     res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res2.user:
                         st.session_state.user = res2.user
@@ -263,14 +260,40 @@ if wechat_openid and "user" not in st.session_state:
                         cookie_manager.set('refresh_token', res2.session.refresh_token,
                                            max_age=30*24*60*60, path='/')
                         success = True
-                        msg = "注册并登录成功"
+                        msg = "自动确认邮箱后登录成功"
+                except Exception as confirm_e:
+                    st.write(f"自动确认邮箱失败: {confirm_e}")
+
+            # 如果登录失败且未成功，尝试注册
+            if not success:
+                try:
+                    res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
+                    if res.user:
+                        st.write("注册成功，正在尝试自动登录...")
+                        # 如果有 service role key，自动确认邮箱
+                        if supabase_admin:
+                            try:
+                                supabase_admin.auth.admin.update_user_by_id(res.user.id, {"email_confirm": True})
+                                st.write("已自动确认邮箱")
+                            except Exception as confirm_e:
+                                st.write(f"自动确认邮箱失败: {confirm_e}")
+                        # 注册后立即登录
+                        res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
+                        if res2.user:
+                            st.session_state.user = res2.user
+                            st.session_state.access_token = res2.session.access_token
+                            supabase.postgrest.auth(res2.session.access_token)
+                            cookie_manager.set('refresh_token', res2.session.refresh_token,
+                                               max_age=30*24*60*60, path='/')
+                            success = True
+                            msg = "注册并登录成功"
+                        else:
+                            msg = "注册后登录失败"
                     else:
-                        msg = "注册后登录失败"
-                else:
-                    msg = "注册失败"
-            except Exception as e2:
-                msg = f"注册异常: {e2}"
-                st.write(f"注册异常: {e2}")
+                        msg = "注册失败"
+                except Exception as e2:
+                    msg = f"注册异常: {e2}"
+                    st.write(f"注册异常: {e2}")
 
         if success:
             st.success(f"✅ {msg}")
@@ -282,6 +305,7 @@ if wechat_openid and "user" not in st.session_state:
             st.write("2. 网络问题 → 检查 Supabase URL 是否正确")
             st.write("3. 密码不一致 → 检查 `WECHAT_FIXED_PASSWORD` 是否在 Secrets 中设置")
             st.write("4. 用户已存在但密码不同 → 可手动在 Supabase 中删除该用户重试")
+            st.write("5. 触发速率限制（email rate limit exceeded）→ 等待几分钟后重试")
             st.write("您也可以使用下方的邮箱登录。")
 
 # 设置 active_tab
