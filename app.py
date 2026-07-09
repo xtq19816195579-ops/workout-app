@@ -7,20 +7,17 @@ import streamlit_cookies_controller as cookies
 import time
 import logging
 
-# 设置日志级别便于调试
+# 设置日志级别
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# -------------------- 初始化与配置 --------------------
+# -------------------- 初始化 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
-# ==================== 清爽高级风格 CSS ====================
+# ==================== 样式（清爽风格） ====================
 st.markdown("""
 <style>
-    /* 整体背景 */
-    .stApp {
-        background: #f8fafc;
-    }
+    .stApp { background: #f8fafc; }
     .main .block-container {
         max-width: 100% !important;
         padding: 1.2rem;
@@ -29,7 +26,6 @@ st.markdown("""
         box-shadow: 0 8px 30px rgba(0,0,0,0.04);
         margin: 0.5rem;
     }
-    /* 按钮 */
     .stButton button {
         width: 100%;
         border-radius: 60px;
@@ -40,41 +36,18 @@ st.markdown("""
         color: white;
         border: none;
         box-shadow: 0 4px 12px rgba(37,99,235,0.2);
-        transition: all 0.2s;
     }
-    .stButton button:hover {
-        background: #1d4ed8;
-        transform: scale(1.01);
-    }
-    .stButton button:active {
-        transform: scale(0.97);
-    }
-    /* 输入框 */
+    .stButton button:hover { background: #1d4ed8; }
     .stTextInput > div, .stNumberInput > div, .stSelectbox > div, .stDateInput > div {
         background: #f1f5f9;
         border-radius: 12px;
         border: 1px solid #e2e8f0;
-        padding: 0.2rem 0.5rem;
     }
-    .stTextInput input, .stNumberInput input, .stSelectbox select, .stDateInput input {
-        color: #0f172a !important;
-        font-size: 16px;
-    }
-    /* 标题 */
-    h1, h2, h3, h4 {
-        color: #0f172a !important;
-        font-weight: 600;
-        letter-spacing: 0;
-    }
-    h1 { font-size: 2rem !important; }
-    h2 { font-size: 1.5rem !important; }
-    h3 { font-size: 1.2rem !important; }
-    /* 日历 */
+    h1, h2, h3, h4 { color: #0f172a !important; font-weight: 600; }
     .calendar td { padding: 4px !important; }
     .cal-day {
         height: 44px !important;
         line-height: 44px !important;
-        font-size: 0.9rem !important;
         border-radius: 12px !important;
         background: #f1f5f9;
         color: #0f172a;
@@ -83,77 +56,21 @@ st.markdown("""
     .status-trained { background: #2563eb !important; color: white !important; }
     .status-missed { background: #fee2e2 !important; color: #dc2626 !important; }
     .status-future { background: #f1f5f9 !important; color: #94a3b8 !important; }
-    /* 侧边栏 */
-    .css-1d391kg {
-        background: #ffffff !important;
-        border-right: 1px solid #e2e8f0;
-    }
-    .css-1d391kg .stExpander {
-        background: #f8fafc;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-        margin-bottom: 0.5rem;
-    }
-    .css-1d391kg .stExpander .streamlit-expanderHeader {
-        color: #0f172a;
-        font-weight: 500;
-    }
-    .css-1d391kg .stMarkdown, .css-1d391kg label {
-        color: #334155 !important;
-    }
-    hr {
-        border-color: #e2e8f0;
-    }
-    .stAlert {
-        background: #f1f5f9;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        color: #0f172a;
-    }
-    .stAlert .stAlertContent {
-        color: #0f172a;
-    }
-    /* 下拉、多选 */
-    .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
-        background: #f1f5f9;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-    }
-    .stDateInput > div {
-        background: #f1f5f9;
-        border-radius: 12px;
-        border: 1px solid #e2e8f0;
-    }
-    .stMarkdown, .stText, .stCaption {
-        color: #334155 !important;
-    }
-    /* 信息框 */
-    .stInfo, .stSuccess, .stWarning, .stError {
-        background: #f1f5f9 !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        color: #0f172a !important;
-    }
-    .stInfo .stAlertContent, .stSuccess .stAlertContent, .stWarning .stAlertContent, .stError .stAlertContent {
-        color: #0f172a !important;
-    }
-    /* 分割线 */
-    hr {
-        border-color: #e2e8f0;
-    }
+    .css-1d391kg { background: #ffffff !important; border-right: 1px solid #e2e8f0; }
+    .stAlert { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- Cookie & Supabase 客户端 --------------------
+# -------------------- Supabase 客户端 --------------------
 cookie_manager = cookies.CookieController()
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
-logger.info(f"微信自动登录固定密码: {WECHAT_FIXED_PASSWORD}")
+logger.info(f"固定密码: {WECHAT_FIXED_PASSWORD}")
 
-# -------------------- 动作库（保持不变） --------------------
+# -------------------- 动作库（不变） --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -178,7 +95,7 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# -------------------- 认证与持久化 --------------------
+# -------------------- 认证函数 --------------------
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
@@ -228,11 +145,12 @@ def login_page():
             except Exception as e:
                 st.error(f"注册失败：{e}")
 
-# ==================== 微信自动登录（增强重试+日志） ====================
+# ==================== 核心：自动登录（增强重试+日志） ====================
 def wechat_auto_login(openid, retries=5):
-    """使用 openid 自动注册/登录 Supabase，支持多次重试"""
+    """使用 openid 自动注册/登录，返回 bool"""
     email = f"{openid}@wechat.com"
-    logger.info(f"尝试自动登录/注册，email: {email}")
+    logger.info(f"尝试自动登录: {email}")
+    
     for attempt in range(retries + 1):
         try:
             # 尝试登录
@@ -243,7 +161,7 @@ def wechat_auto_login(openid, retries=5):
                 supabase.postgrest.auth(res.session.access_token)
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30*24*60*60, path='/')
-                logger.info(f"✅ 用户 {email} 登录成功")
+                logger.info(f"✅ 登录成功: {email}")
                 return True
         except Exception as e:
             logger.warning(f"登录尝试 {attempt+1} 失败: {e}")
@@ -259,31 +177,35 @@ def wechat_auto_login(openid, retries=5):
                         supabase.postgrest.auth(res2.session.access_token)
                         cookie_manager.set('refresh_token', res2.session.refresh_token,
                                            max_age=30*24*60*60, path='/')
-                        logger.info(f"✅ 用户 {email} 注册并登录成功")
+                        logger.info(f"✅ 注册并登录成功: {email}")
                         return True
             except Exception as e2:
                 logger.warning(f"注册尝试 {attempt+1} 失败: {e2}")
         if attempt < retries:
-            time.sleep(1)  # 每次重试间隔1秒
-    logger.error(f"❌ 自动登录失败，email: {email}")
+            time.sleep(1)
+    logger.error(f"❌ 自动登录最终失败: {email}")
     return False
 
-# ==================== URL 参数解析 ====================
+# ==================== 解析 URL 参数 ====================
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
-logger.info(f"接收到参数: tab={tab}, wechat_openid={wechat_openid}")
+logger.info(f"接收到参数 - tab: {tab}, wechat_openid: {wechat_openid}")
 
-# 如果存在 wechat_openid 且未登录，则尝试自动登录
+# 如果未登录且有 openid，尝试自动登录
 if wechat_openid and "user" not in st.session_state:
+    # 显示加载中
     with st.spinner("正在通过微信认证..."):
         success = wechat_auto_login(wechat_openid)
     if success:
-        logger.info("自动登录成功，正在刷新...")
+        st.success("自动登录成功！")
         st.rerun()
     else:
-        st.warning("自动登录暂时不可用，请使用邮箱登录或稍后重试。")
-        logger.warning("自动登录失败，显示邮箱登录选项")
+        st.error("自动登录失败，请使用邮箱登录。")
+        # 打印详细错误到页面上（方便调试）
+        st.write("调试信息：请确认 Supabase 邮箱确认已关闭，且密码正确。")
+        # 这里可以显示 openid 以供调试
+        st.write(f"传递的 openid: {wechat_openid}")
 
 # 设置 active_tab
 if tab == "training":
@@ -307,10 +229,7 @@ user = st.session_state.user
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
-# 如果自动登录成功，可以显示欢迎信息但去掉也可
-# st.success(f"欢迎 {user.email}")
-
-# -------------------- 侧边栏（功能完整） --------------------
+# -------------------- 侧边栏（功能完整，省略重复部分，但必须保留） --------------------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
@@ -385,7 +304,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"导出失败：{e}")
 
-    # 训练记录表单
+    # 训练记录表单（快速记录）
     st.header("📝 快速记录")
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
