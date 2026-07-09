@@ -8,6 +8,81 @@ import streamlit_cookies_controller as cookies
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wide")
 
+# ==================== 移动端适配 CSS（新增） ====================
+st.markdown("""
+<style>
+    /* 强制页面宽度适应手机 */
+    .main .block-container {
+        max-width: 100% !important;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+        padding-top: 1rem;
+    }
+    /* 按钮全宽，更易点击 */
+    .stButton button {
+        width: 100%;
+        border-radius: 8px;
+        padding: 0.6rem 0;
+        font-size: 1rem;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        margin-bottom: 0.3rem;
+    }
+    .stButton button:hover {
+        background-color: #45a049;
+    }
+    /* 输入框样式 */
+    .stTextInput, .stNumberInput, .stSelectbox, .stDateInput {
+        font-size: 16px;
+    }
+    /* 侧边栏在手机上默认折叠（可选） */
+    .css-1d391kg {
+        padding-top: 2rem;
+    }
+    /* 调整标题大小 */
+    h1 {
+        font-size: 1.8rem !important;
+    }
+    h2 {
+        font-size: 1.4rem !important;
+    }
+    h3 {
+        font-size: 1.2rem !important;
+    }
+    /* 日历单元格适配 */
+    .calendar td {
+        padding: 2px !important;
+    }
+    .cal-day {
+        height: 40px !important;
+        line-height: 40px !important;
+        font-size: 0.9rem !important;
+    }
+    /* 下拉选择框优化 */
+    .stSelectbox div[data-baseweb="select"] {
+        min-height: 38px;
+    }
+    /* 多选框优化 */
+    .stMultiSelect div[data-baseweb="select"] {
+        min-height: 38px;
+    }
+    /* 调整间距 */
+    .element-container {
+        margin-bottom: 0.5rem;
+    }
+    /* 侧边栏文字大小 */
+    .sidebar-content {
+        font-size: 0.9rem;
+    }
+    /* 移动端Expander优化 */
+    .streamlit-expanderHeader {
+        font-size: 1rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+# ================================================================
+
 cookie_manager = cookies.CookieController()
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
