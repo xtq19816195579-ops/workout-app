@@ -4,18 +4,17 @@ from datetime import datetime, date, timedelta
 import calendar
 from supabase import create_client, Client
 import streamlit_cookies_controller as cookies
+import time
 
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
-# ==================== 高级样式（全新） ====================
+# ==================== 高级样式（保持不变） ====================
 st.markdown("""
 <style>
-    /* 全局深色渐变背景 */
     .stApp {
         background: linear-gradient(145deg, #0f0c29, #302b63, #24243e);
     }
-    /* 主容器 */
     .main .block-container {
         max-width: 100% !important;
         padding: 1rem 1.2rem;
@@ -26,7 +25,6 @@ st.markdown("""
         border: 1px solid rgba(255,255,255,0.06);
         box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
-    /* 所有按钮 */
     .stButton button {
         width: 100%;
         border-radius: 60px;
@@ -46,7 +44,6 @@ st.markdown("""
     .stButton button:active {
         transform: scale(0.96);
     }
-    /* 输入框 */
     .stTextInput > div, .stNumberInput > div, .stSelectbox > div, .stDateInput > div {
         background: rgba(255,255,255,0.08);
         border-radius: 16px;
@@ -57,7 +54,6 @@ st.markdown("""
         color: #ffffff !important;
         font-size: 16px;
     }
-    /* 标题 */
     h1, h2, h3, h4 {
         color: #ffffff !important;
         font-weight: 600;
@@ -66,10 +62,7 @@ st.markdown("""
     h1 { font-size: 2.2rem !important; text-shadow: 0 0 20px rgba(245,200,66,0.2); }
     h2 { font-size: 1.6rem !important; }
     h3 { font-size: 1.3rem !important; }
-    /* 日历网格 */
-    .calendar td {
-        padding: 4px !important;
-    }
+    .calendar td { padding: 4px !important; }
     .cal-day {
         height: 44px !important;
         line-height: 44px !important;
@@ -81,13 +74,11 @@ st.markdown("""
     .status-trained { background: #f5c842 !important; color: #1a1a2e !important; }
     .status-missed { background: rgba(255,107,107,0.3) !important; }
     .status-future { background: rgba(255,255,255,0.05) !important; }
-    /* 下拉框、多选框优化 */
     .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
         background: rgba(255,255,255,0.05);
         border-radius: 12px;
         border: 1px solid rgba(255,255,255,0.1);
     }
-    /* 侧边栏 */
     .css-1d391kg {
         background: rgba(15, 12, 41, 0.8) !important;
         backdrop-filter: blur(20px);
@@ -106,12 +97,10 @@ st.markdown("""
     .css-1d391kg .stMarkdown, .css-1d391kg label {
         color: rgba(255,255,255,0.8) !important;
     }
-    /* 分割线 */
     hr {
         border-color: rgba(255,255,255,0.1);
         margin: 1rem 0;
     }
-    /* 错误/成功消息 */
     .stAlert {
         background: rgba(255,255,255,0.05);
         border: 1px solid rgba(255,255,255,0.1);
@@ -119,21 +108,24 @@ st.markdown("""
         backdrop-filter: blur(10px);
         color: #ffffff;
     }
-    .stAlert .stAlertContent {
-        color: #ffffff;
-    }
-    /* 日期选择器 */
     .stDateInput > div {
         background: rgba(255,255,255,0.05);
         border-radius: 16px;
     }
-    /* 整体文字颜色 */
     .stMarkdown, .stText, .stCaption {
         color: rgba(255,255,255,0.85) !important;
     }
+    /* 调试信息样式（可忽略） */
+    .debug-info {
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 0.5rem 1rem;
+        margin-bottom: 0.5rem;
+        color: rgba(255,255,255,0.5);
+        font-size: 0.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
-# ===========================================================
 
 # -------------------- Cookie & Supabase 客户端 --------------------
 cookie_manager = cookies.CookieController()
@@ -218,72 +210,74 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# ==================== 微信自动登录（修复版） ====================
-def wechat_auto_login(openid):
-    """使用 openid 自动注册/登录 Supabase，静默处理"""
+# ==================== 微信自动登录（优化版，含重试） ====================
+def wechat_auto_login(openid, retries=2):
+    """使用 openid 自动注册/登录 Supabase，支持重试"""
     email = f"{openid}@wechat.com"
-    try:
-        # 1. 尝试登录
-        res = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
-        st.session_state.user = res.user
-        st.session_state.access_token = res.session.access_token
-        supabase.postgrest.auth(res.session.access_token)
-        cookie_manager.set('refresh_token', res.session.refresh_token,
-                           max_age=30*24*60*60, path='/')
-        return True
-    except Exception as e:
-        # 2. 登录失败，尝试注册
+    
+    for attempt in range(retries + 1):
         try:
-            res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
+            # 1. 尝试登录
+            res = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
             if res.user:
-                # 注册成功，立即登录
-                res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
-                st.session_state.user = res2.user
-                st.session_state.access_token = res2.session.access_token
-                supabase.postgrest.auth(res2.session.access_token)
-                cookie_manager.set('refresh_token', res2.session.refresh_token,
+                st.session_state.user = res.user
+                st.session_state.access_token = res.session.access_token
+                supabase.postgrest.auth(res.session.access_token)
+                cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30*24*60*60, path='/')
                 return True
-            else:
-                # 注册返回无用户，可能已经存在，再次尝试登录
-                res3 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
-                if res3.user:
-                    st.session_state.user = res3.user
-                    st.session_state.access_token = res3.session.access_token
-                    supabase.postgrest.auth(res3.session.access_token)
-                    cookie_manager.set('refresh_token', res3.session.refresh_token,
-                                       max_age=30*24*60*60, path='/')
-                    return True
-                else:
-                    return False
-        except Exception as e2:
-            # 注册失败，可能是网络或配置问题，直接降级到登录页
-            return False
+        except Exception as e:
+            # 2. 登录失败，尝试注册
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
+                if res.user:
+                    # 注册成功，立即登录
+                    res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
+                    if res2.user:
+                        st.session_state.user = res2.user
+                        st.session_state.access_token = res2.session.access_token
+                        supabase.postgrest.auth(res2.session.access_token)
+                        cookie_manager.set('refresh_token', res2.session.refresh_token,
+                                           max_age=30*24*60*60, path='/')
+                        return True
+            except:
+                pass
+        # 重试前稍等
+        if attempt < retries:
+            time.sleep(0.5)
+    return False
 
 # ==================== URL 参数解析 ====================
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
 
+# ---------- 调试信息（可注释掉） ----------
+# st.markdown(f'<div class="debug-info">🔍 接收到的 openid: {wechat_openid}</div>', unsafe_allow_html=True)
+
 # 如果存在 wechat_openid 且未登录，则尝试自动登录
 if wechat_openid and "user" not in st.session_state:
-    if wechat_auto_login(wechat_openid):
+    with st.spinner("正在为您自动登录..."):
+        success = wechat_auto_login(wechat_openid)
+    if success:
         st.rerun()
     else:
-        # 自动登录失败，显示简洁提示，但用户仍可使用邮箱登录
-        st.warning("自动登录失败，请使用邮箱登录。")
+        # 自动登录失败，显示友好提示，但仍保留邮箱登录选项
+        st.warning("自动登录暂时不可用，请使用邮箱登录或稍后重试。")
+        # 注意：这里不跳转登录页，而是让用户自行选择邮箱登录
 
-# 设置 active_tab（用于后续跳转）
-if tab == "training":
-    st.session_state.active_tab = "训练记录"
-elif tab == "calendar":
-    st.session_state.active_tab = "日历"
-elif tab == "settings":
-    st.session_state.active_tab = "设置"
-elif tab == "report":
-    st.session_state.active_tab = "战报"
-else:
-    st.session_state.active_tab = "首页"
+# 如果已登录，设置 active_tab
+if "user" in st.session_state:
+    if tab == "training":
+        st.session_state.active_tab = "训练记录"
+    elif tab == "calendar":
+        st.session_state.active_tab = "日历"
+    elif tab == "settings":
+        st.session_state.active_tab = "设置"
+    elif tab == "report":
+        st.session_state.active_tab = "战报"
+    else:
+        st.session_state.active_tab = "首页"
 
 # ==================== 主程序 ====================
 if "user" not in st.session_state:
@@ -294,9 +288,6 @@ if "user" not in st.session_state:
 user = st.session_state.user
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
-
-# 如果自动登录成功，会显示欢迎信息（但可以隐藏）
-# st.success(f"✅ 已自动登录，欢迎 {user.email}！")
 
 # -------------------- 侧边栏 --------------------
 with st.sidebar:
@@ -310,7 +301,7 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-    # 个人设置（使用用户 Token）
+    # 个人设置
     with st.expander("⚙️ 个人设置", expanded=False):
         try:
             profile_res = supabase.table("profiles").select("weight", "height").eq("user_id", user.id).execute()
@@ -318,53 +309,46 @@ with st.sidebar:
                 profile = profile_res.data[0]
             else:
                 profile = {"weight": 70, "height": 175}
-        except Exception as e:
-            st.error(f"读取身体数据失败：{e}")
+        except:
             profile = {"weight": 70, "height": 175}
-
         weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0,
                                  value=float(profile.get("weight", 70.0)), step=1.0, key="profile_weight")
         height = st.number_input("身高 (cm)", min_value=100, max_value=250,
                                  value=int(profile.get("height", 175)), step=1, key="profile_height")
         if st.button("保存身体数据"):
             try:
-                data = {"user_id": user.id, "weight": weight, "height": height}
-                supabase.table("profiles").upsert(data).execute()
+                supabase.table("profiles").upsert({"user_id": user.id, "weight": weight, "height": height}).execute()
                 st.success("身体数据已保存")
                 st.rerun()
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
-    # 推送设置（多用户推送）
+    # 推送设置
     with st.expander("📲 微信推送设置", expanded=False):
         try:
             push_res = supabase.table("user_push_settings").select("pushplus_token", "is_enabled").eq("user_id", user.id).execute()
             if push_res.data:
-                push_data = push_res.data[0]
-                current_token = push_data.get("pushplus_token", "")
-                is_enabled = push_data.get("is_enabled", True)
+                current_token = push_res.data[0].get("pushplus_token", "")
+                is_enabled = push_res.data[0].get("is_enabled", True)
             else:
                 current_token = ""
                 is_enabled = True
-        except Exception as e:
-            st.error(f"读取推送设置失败：{e}")
+        except:
             current_token = ""
             is_enabled = True
-
-        new_token = st.text_input("PushPlus Token", value=current_token, placeholder="请前往 pushplus.plus 获取", key="push_token_input")
-        enabled = st.checkbox("开启每日推送", value=is_enabled, key="push_enabled")
+        new_token = st.text_input("PushPlus Token", value=current_token, placeholder="请前往 pushplus.plus 获取")
+        enabled = st.checkbox("开启每日推送", value=is_enabled)
         if st.button("保存推送设置"):
             try:
-                data = {
+                supabase.table("user_push_settings").upsert({
                     "user_id": user.id,
                     "pushplus_token": new_token.strip(),
                     "is_enabled": enabled
-                }
-                supabase.table("user_push_settings").upsert(data).execute()
+                }).execute()
                 st.success("推送设置已保存")
                 st.rerun()
             except Exception as e:
-                st.error(f"保存推送设置失败：{e}")
+                st.error(f"保存失败：{e}")
 
     # 数据导出
     with st.expander("📤 导出数据", expanded=False):
@@ -380,7 +364,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"导出失败：{e}")
 
-    # 训练记录表单（所有控件 key 绑定 session_state）
+    # 训练记录表单
     st.header("📝 快速记录")
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
@@ -455,8 +439,6 @@ with st.sidebar:
 
 # -------------------- 主界面：计时器与日历 --------------------
 st.title("💪 量化训练日志")
-
-# 计时器（不影响侧边栏数据）
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
 if "timer_start" not in st.session_state:
@@ -495,7 +477,6 @@ else:
             st.warning("训练已取消，时长不会保存。")
             st.rerun()
 
-# 日历与数据展示
 st.markdown("---")
 col1, col2, col3 = st.columns([1, 2, 1])
 if "view_month" not in st.session_state:
@@ -523,8 +504,7 @@ def load_all_workouts():
     try:
         res = supabase.table("workouts").select("*").eq("user_id", user.id).execute()
         return res.data
-    except Exception as e:
-        st.error(f"加载训练记录失败：{e}")
+    except:
         return []
 
 all_workouts = load_all_workouts()
