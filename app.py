@@ -9,6 +9,20 @@ import time
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
+# ==================== 测试模式：如果 URL 参数包含 test=1，则输出纯文本并退出 ====================
+# 此代码必须在任何其他业务逻辑之前执行，以确保 WebView 能加载
+query_params = st.query_params
+if query_params.get("test") == "1":
+    st.markdown("""
+    <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
+        <h1>✅ WebView 加载成功！</h1>
+        <p>这是测试页面，说明 Streamlit 应用可以被小程序 WebView 正常加载。</p>
+        <p>如果看到此消息，则问题不在网络层面，而是后续业务逻辑。</p>
+        <p>当前时间：""" + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()  # 停止执行后续代码
+
 # ==================== 清爽高级风格 CSS ====================
 st.markdown("""
 <style>
@@ -195,6 +209,7 @@ def login_page():
                 st.error(f"注册失败：{e}")
 
 # ==================== URL 参数解析与自动登录（带详细调试） ====================
+# 注意：test=1 已被测试逻辑提前捕获，不会走到这里
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
