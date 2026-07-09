@@ -157,7 +157,6 @@ def generate_report(user_id, workouts, total_duration, weight):
     report += f"🏋️ 训练部位：{'、'.join(parts)}\n"
     report += f"📊 完成动作：{'、'.join(actions)}\n"
     report += f"⏱️ 训练时长：{dur_str}\n"
-    # 修改：去掉括号中的说明
     report += f"🔥 估算消耗：{total_kcal} 千卡\n"
     report += "✅ 详细记录：\n"
     for w in workouts:
