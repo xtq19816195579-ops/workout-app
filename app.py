@@ -7,122 +7,137 @@ import streamlit_cookies_controller as cookies
 import time
 
 # -------------------- 初始化与配置 --------------------
-st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
+st.set_page_config(page_title="茧记", page_icon="⚙️", layout="wide")
 
-# ==================== 高级样式（保持不变） ====================
+# ==================== 金属硬汉风格 CSS ====================
 st.markdown("""
 <style>
+    /* 全局暗色金属背景 */
     .stApp {
-        background: linear-gradient(145deg, #0f0c29, #302b63, #24243e);
+        background: #121212;
     }
     .main .block-container {
         max-width: 100% !important;
-        padding: 1rem 1.2rem;
-        background: rgba(255,255,255,0.03);
-        backdrop-filter: blur(10px);
-        border-radius: 32px;
+        padding: 1.2rem;
+        background: #1a1a1a;
+        border: 2px solid #333;
+        border-radius: 0;
+        box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
         margin: 0.5rem;
-        border: 1px solid rgba(255,255,255,0.06);
-        box-shadow: 0 8px 32px rgba(0,0,0,0.4);
     }
+    /* 所有按钮 - 金属金 */
     .stButton button {
         width: 100%;
-        border-radius: 60px;
+        border-radius: 0;
         padding: 0.7rem 0;
         font-size: 1rem;
-        font-weight: 600;
-        background: linear-gradient(135deg, #f5c842, #f7b731);
-        color: #1a1a2e;
-        border: none;
-        box-shadow: 0 4px 16px rgba(245, 200, 66, 0.3);
-        transition: all 0.2s;
+        font-weight: 700;
+        background: linear-gradient(145deg, #d4af37, #b8962e);
+        color: #1a1a1a;
+        border: 2px solid #f5d77b;
+        box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
+        transition: all 0.1s;
     }
     .stButton button:hover {
         transform: scale(1.02);
-        box-shadow: 0 6px 24px rgba(245, 200, 66, 0.5);
+        background: #c9a031;
     }
     .stButton button:active {
-        transform: scale(0.96);
+        transform: scale(0.97);
     }
+    /* 输入框 - 金属边框 */
     .stTextInput > div, .stNumberInput > div, .stSelectbox > div, .stDateInput > div {
-        background: rgba(255,255,255,0.08);
-        border-radius: 16px;
-        border: 1px solid rgba(255,255,255,0.1);
+        background: #222;
+        border-radius: 0;
+        border: 2px solid #444;
         padding: 0.2rem 0.5rem;
     }
     .stTextInput input, .stNumberInput input, .stSelectbox select, .stDateInput input {
-        color: #ffffff !important;
+        color: #eee !important;
         font-size: 16px;
     }
+    /* 标题 - 金属金 */
     h1, h2, h3, h4 {
-        color: #ffffff !important;
-        font-weight: 600;
-        letter-spacing: 1px;
+        color: #eee !important;
+        font-weight: 700;
+        letter-spacing: 2px;
     }
-    h1 { font-size: 2.2rem !important; text-shadow: 0 0 20px rgba(245,200,66,0.2); }
+    h1 { font-size: 2.2rem !important; text-shadow: 0 0 15px rgba(212,175,55,0.2); }
     h2 { font-size: 1.6rem !important; }
     h3 { font-size: 1.3rem !important; }
-    .calendar td { padding: 4px !important; }
+    /* 日历 - 硬朗风格 */
+    .calendar td { padding: 2px !important; }
     .cal-day {
         height: 44px !important;
         line-height: 44px !important;
         font-size: 0.9rem !important;
-        border-radius: 16px !important;
-        background: rgba(255,255,255,0.05);
-        color: rgba(255,255,255,0.8);
+        border-radius: 0 !important;
+        background: #222;
+        color: #aaa;
+        border: 1px solid #333;
     }
-    .status-trained { background: #f5c842 !important; color: #1a1a2e !important; }
-    .status-missed { background: rgba(255,107,107,0.3) !important; }
-    .status-future { background: rgba(255,255,255,0.05) !important; }
-    .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
-        background: rgba(255,255,255,0.05);
-        border-radius: 12px;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
+    .status-trained { background: #d4af37 !important; color: #1a1a1a !important; }
+    .status-missed { background: #3a1a1a !important; color: #ff6b6b !important; }
+    .status-future { background: #1a1a1a !important; color: #555 !important; }
+    /* 侧边栏 */
     .css-1d391kg {
-        background: rgba(15, 12, 41, 0.8) !important;
-        backdrop-filter: blur(20px);
-        border-right: 1px solid rgba(255,255,255,0.05);
+        background: #1a1a1a !important;
+        border-right: 2px solid #333;
     }
     .css-1d391kg .stExpander {
-        background: rgba(255,255,255,0.03);
-        border-radius: 16px;
-        border: 1px solid rgba(255,255,255,0.05);
+        background: #222;
+        border: 2px solid #333;
+        border-radius: 0;
         margin-bottom: 0.5rem;
     }
     .css-1d391kg .stExpander .streamlit-expanderHeader {
-        color: #ffffff;
-        font-weight: 500;
+        color: #eee;
+        font-weight: 600;
     }
     .css-1d391kg .stMarkdown, .css-1d391kg label {
-        color: rgba(255,255,255,0.8) !important;
+        color: #ccc !important;
     }
     hr {
-        border-color: rgba(255,255,255,0.1);
-        margin: 1rem 0;
+        border-color: #333;
     }
     .stAlert {
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 16px;
-        backdrop-filter: blur(10px);
-        color: #ffffff;
+        background: #1a1a1a;
+        border: 2px solid #d4af37;
+        border-radius: 0;
+        color: #eee;
     }
+    .stAlert .stAlertContent {
+        color: #eee;
+    }
+    /* 下拉框、多选框 */
+    .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
+        background: #222;
+        border: 2px solid #444;
+        border-radius: 0;
+    }
+    /* 日期选择器 */
     .stDateInput > div {
-        background: rgba(255,255,255,0.05);
-        border-radius: 16px;
+        background: #222;
+        border: 2px solid #444;
+        border-radius: 0;
     }
+    /* 文字颜色 */
     .stMarkdown, .stText, .stCaption {
-        color: rgba(255,255,255,0.85) !important;
+        color: #ccc !important;
     }
-    /* 调试信息样式（可忽略） */
-    .debug-info {
-        background: rgba(255,255,255,0.05);
-        border-radius: 12px;
-        padding: 0.5rem 1rem;
-        margin-bottom: 0.5rem;
-        color: rgba(255,255,255,0.5);
-        font-size: 0.8rem;
+    /* 信息框 */
+    .stInfo, .stSuccess, .stWarning, .stError {
+        background: #1a1a1a !important;
+        border: 2px solid #444 !important;
+        border-radius: 0 !important;
+        color: #eee !important;
+    }
+    .stInfo .stAlertContent, .stSuccess .stAlertContent, .stWarning .stAlertContent, .stError .stAlertContent {
+        color: #eee !important;
+    }
+    /* 分割线 */
+    hr {
+        border-color: #333;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -136,7 +151,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 # 固定密码（用于微信自动登录）
 WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
 
-# -------------------- 动作库（不变） --------------------
+# -------------------- 动作库 --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -178,8 +193,8 @@ def restore_session():
     return False
 
 def login_page():
-    st.title("🦋 茧记")
-    st.write("欢迎回来，请登录")
+    st.title("⚙️ 茧记")
+    st.write("请使用邮箱登录（如自动登录失败）")
     menu = st.radio("选择操作", ["登录", "注册"], key="login_menu")
     email = st.text_input("邮箱", key="login_email")
     password = st.text_input("密码", type="password", key="login_password")
@@ -210,14 +225,13 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# ==================== 微信自动登录（优化版，含重试） ====================
-def wechat_auto_login(openid, retries=2):
-    """使用 openid 自动注册/登录 Supabase，支持重试"""
+# ==================== 微信自动登录（强化重试） ====================
+def wechat_auto_login(openid, retries=3):
+    """使用 openid 自动注册/登录 Supabase，支持多次重试"""
     email = f"{openid}@wechat.com"
-    
     for attempt in range(retries + 1):
         try:
-            # 1. 尝试登录
+            # 尝试登录
             res = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
             if res.user:
                 st.session_state.user = res.user
@@ -227,11 +241,11 @@ def wechat_auto_login(openid, retries=2):
                                    max_age=30*24*60*60, path='/')
                 return True
         except Exception as e:
-            # 2. 登录失败，尝试注册
+            # 登录失败，尝试注册
             try:
                 res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
                 if res.user:
-                    # 注册成功，立即登录
+                    # 注册成功后立即登录
                     res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res2.user:
                         st.session_state.user = res2.user
@@ -242,9 +256,8 @@ def wechat_auto_login(openid, retries=2):
                         return True
             except:
                 pass
-        # 重试前稍等
         if attempt < retries:
-            time.sleep(0.5)
+            time.sleep(0.5)  # 重试等待
     return False
 
 # ==================== URL 参数解析 ====================
@@ -252,32 +265,28 @@ query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
 
-# ---------- 调试信息（可注释掉） ----------
-# st.markdown(f'<div class="debug-info">🔍 接收到的 openid: {wechat_openid}</div>', unsafe_allow_html=True)
-
 # 如果存在 wechat_openid 且未登录，则尝试自动登录
 if wechat_openid and "user" not in st.session_state:
-    with st.spinner("正在为您自动登录..."):
+    with st.spinner("⛓️ 正在通过微信认证..."):
         success = wechat_auto_login(wechat_openid)
     if success:
         st.rerun()
     else:
-        # 自动登录失败，显示友好提示，但仍保留邮箱登录选项
+        # 自动登录失败，提示用户重试或使用邮箱
         st.warning("自动登录暂时不可用，请使用邮箱登录或稍后重试。")
-        # 注意：这里不跳转登录页，而是让用户自行选择邮箱登录
+        # 保留邮箱登录选项
 
-# 如果已登录，设置 active_tab
-if "user" in st.session_state:
-    if tab == "training":
-        st.session_state.active_tab = "训练记录"
-    elif tab == "calendar":
-        st.session_state.active_tab = "日历"
-    elif tab == "settings":
-        st.session_state.active_tab = "设置"
-    elif tab == "report":
-        st.session_state.active_tab = "战报"
-    else:
-        st.session_state.active_tab = "首页"
+# 设置 active_tab
+if tab == "training":
+    st.session_state.active_tab = "训练记录"
+elif tab == "calendar":
+    st.session_state.active_tab = "日历"
+elif tab == "settings":
+    st.session_state.active_tab = "设置"
+elif tab == "report":
+    st.session_state.active_tab = "战报"
+else:
+    st.session_state.active_tab = "首页"
 
 # ==================== 主程序 ====================
 if "user" not in st.session_state:
@@ -548,18 +557,18 @@ def render_calendar(year, month, trained_dates):
     st.markdown("""
     <style>
     .calendar { width: 100%; border-collapse: collapse; }
-    .calendar th { text-align: center; padding: 8px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.6); }
-    .calendar td { padding: 0; text-align: center; vertical-align: middle; }
+    .calendar th { text-align: center; padding: 8px; background: #222; color: #aaa; border: 1px solid #333; }
+    .calendar td { padding: 0; text-align: center; vertical-align: middle; border: 1px solid #333; }
     .cal-day {
         display: block; width: 100%; height: 60px;
-        line-height: 60px; border-radius: 10px;
-        text-decoration: none; color: #333; font-weight: bold;
+        line-height: 60px; border-radius: 0 !important;
+        text-decoration: none; color: #eee; font-weight: bold;
         border: 2px solid transparent; transition: 0.2s;
     }
-    .cal-day:hover { border-color: #f5c842; }
-    .status-trained { background: #f5c842; color: #1a1a2e; }
-    .status-missed { background: rgba(255,107,107,0.3); color: #ff6b6b; }
-    .status-future { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.4); }
+    .cal-day:hover { border-color: #d4af37; }
+    .status-trained { background: #d4af37; color: #1a1a1a; }
+    .status-missed { background: #3a1a1a; color: #ff6b6b; }
+    .status-future { background: #1a1a1a; color: #555; }
     .status-empty { background: transparent; }
     </style>
     """, unsafe_allow_html=True)
