@@ -5,139 +5,141 @@ import calendar
 from supabase import create_client, Client
 import streamlit_cookies_controller as cookies
 import time
+import logging
+
+# 设置日志级别便于调试
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # -------------------- 初始化与配置 --------------------
-st.set_page_config(page_title="茧记", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
-# ==================== 金属硬汉风格 CSS ====================
+# ==================== 清爽高级风格 CSS ====================
 st.markdown("""
 <style>
-    /* 全局暗色金属背景 */
+    /* 整体背景 */
     .stApp {
-        background: #121212;
+        background: #f8fafc;
     }
     .main .block-container {
         max-width: 100% !important;
         padding: 1.2rem;
-        background: #1a1a1a;
-        border: 2px solid #333;
-        border-radius: 0;
-        box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+        background: #ffffff;
+        border-radius: 24px;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.04);
         margin: 0.5rem;
     }
-    /* 所有按钮 - 金属金 */
+    /* 按钮 */
     .stButton button {
         width: 100%;
-        border-radius: 0;
-        padding: 0.7rem 0;
+        border-radius: 60px;
+        padding: 0.6rem 0;
         font-size: 1rem;
-        font-weight: 700;
-        background: linear-gradient(145deg, #d4af37, #b8962e);
-        color: #1a1a1a;
-        border: 2px solid #f5d77b;
-        box-shadow: 0 4px 12px rgba(212, 175, 55, 0.3);
-        transition: all 0.1s;
+        font-weight: 500;
+        background: #2563eb;
+        color: white;
+        border: none;
+        box-shadow: 0 4px 12px rgba(37,99,235,0.2);
+        transition: all 0.2s;
     }
     .stButton button:hover {
-        transform: scale(1.02);
-        background: #c9a031;
+        background: #1d4ed8;
+        transform: scale(1.01);
     }
     .stButton button:active {
         transform: scale(0.97);
     }
-    /* 输入框 - 金属边框 */
+    /* 输入框 */
     .stTextInput > div, .stNumberInput > div, .stSelectbox > div, .stDateInput > div {
-        background: #222;
-        border-radius: 0;
-        border: 2px solid #444;
+        background: #f1f5f9;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
         padding: 0.2rem 0.5rem;
     }
     .stTextInput input, .stNumberInput input, .stSelectbox select, .stDateInput input {
-        color: #eee !important;
+        color: #0f172a !important;
         font-size: 16px;
     }
-    /* 标题 - 金属金 */
+    /* 标题 */
     h1, h2, h3, h4 {
-        color: #eee !important;
-        font-weight: 700;
-        letter-spacing: 2px;
+        color: #0f172a !important;
+        font-weight: 600;
+        letter-spacing: 0;
     }
-    h1 { font-size: 2.2rem !important; text-shadow: 0 0 15px rgba(212,175,55,0.2); }
-    h2 { font-size: 1.6rem !important; }
-    h3 { font-size: 1.3rem !important; }
-    /* 日历 - 硬朗风格 */
-    .calendar td { padding: 2px !important; }
+    h1 { font-size: 2rem !important; }
+    h2 { font-size: 1.5rem !important; }
+    h3 { font-size: 1.2rem !important; }
+    /* 日历 */
+    .calendar td { padding: 4px !important; }
     .cal-day {
         height: 44px !important;
         line-height: 44px !important;
         font-size: 0.9rem !important;
-        border-radius: 0 !important;
-        background: #222;
-        color: #aaa;
-        border: 1px solid #333;
+        border-radius: 12px !important;
+        background: #f1f5f9;
+        color: #0f172a;
+        border: none;
     }
-    .status-trained { background: #d4af37 !important; color: #1a1a1a !important; }
-    .status-missed { background: #3a1a1a !important; color: #ff6b6b !important; }
-    .status-future { background: #1a1a1a !important; color: #555 !important; }
+    .status-trained { background: #2563eb !important; color: white !important; }
+    .status-missed { background: #fee2e2 !important; color: #dc2626 !important; }
+    .status-future { background: #f1f5f9 !important; color: #94a3b8 !important; }
     /* 侧边栏 */
     .css-1d391kg {
-        background: #1a1a1a !important;
-        border-right: 2px solid #333;
+        background: #ffffff !important;
+        border-right: 1px solid #e2e8f0;
     }
     .css-1d391kg .stExpander {
-        background: #222;
-        border: 2px solid #333;
-        border-radius: 0;
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
         margin-bottom: 0.5rem;
     }
     .css-1d391kg .stExpander .streamlit-expanderHeader {
-        color: #eee;
-        font-weight: 600;
+        color: #0f172a;
+        font-weight: 500;
     }
     .css-1d391kg .stMarkdown, .css-1d391kg label {
-        color: #ccc !important;
+        color: #334155 !important;
     }
     hr {
-        border-color: #333;
+        border-color: #e2e8f0;
     }
     .stAlert {
-        background: #1a1a1a;
-        border: 2px solid #d4af37;
-        border-radius: 0;
-        color: #eee;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        color: #0f172a;
     }
     .stAlert .stAlertContent {
-        color: #eee;
+        color: #0f172a;
     }
-    /* 下拉框、多选框 */
+    /* 下拉、多选 */
     .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
-        background: #222;
-        border: 2px solid #444;
-        border-radius: 0;
+        background: #f1f5f9;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
     }
-    /* 日期选择器 */
     .stDateInput > div {
-        background: #222;
-        border: 2px solid #444;
-        border-radius: 0;
+        background: #f1f5f9;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
     }
-    /* 文字颜色 */
     .stMarkdown, .stText, .stCaption {
-        color: #ccc !important;
+        color: #334155 !important;
     }
     /* 信息框 */
     .stInfo, .stSuccess, .stWarning, .stError {
-        background: #1a1a1a !important;
-        border: 2px solid #444 !important;
-        border-radius: 0 !important;
-        color: #eee !important;
+        background: #f1f5f9 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        color: #0f172a !important;
     }
     .stInfo .stAlertContent, .stSuccess .stAlertContent, .stWarning .stAlertContent, .stError .stAlertContent {
-        color: #eee !important;
+        color: #0f172a !important;
     }
     /* 分割线 */
     hr {
-        border-color: #333;
+        border-color: #e2e8f0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -148,10 +150,10 @@ SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-# 固定密码（用于微信自动登录）
 WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
+logger.info(f"微信自动登录固定密码: {WECHAT_FIXED_PASSWORD}")
 
-# -------------------- 动作库 --------------------
+# -------------------- 动作库（保持不变） --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -188,12 +190,13 @@ def restore_session():
             cookie_manager.set('refresh_token', res.session.refresh_token,
                                max_age=30 * 24 * 60 * 60, path='/')
             return True
-        except:
+        except Exception as e:
+            logger.error(f"恢复会话失败: {e}")
             cookie_manager.remove('refresh_token', path='/')
     return False
 
 def login_page():
-    st.title("⚙️ 茧记")
+    st.title("🦋 茧记")
     st.write("请使用邮箱登录（如自动登录失败）")
     menu = st.radio("选择操作", ["登录", "注册"], key="login_menu")
     email = st.text_input("邮箱", key="login_email")
@@ -213,7 +216,7 @@ def login_page():
                                        max_age=30*24*60*60, path='/')
                     st.rerun()
             except Exception as e:
-                st.error("登录失败：" + str(e))
+                st.error(f"登录失败：{e}")
     else:
         if st.button("注册", key="register_btn"):
             try:
@@ -223,12 +226,13 @@ def login_page():
                 else:
                     st.error("注册失败，请稍后重试。")
             except Exception as e:
-                st.error("注册失败：" + str(e))
+                st.error(f"注册失败：{e}")
 
-# ==================== 微信自动登录（强化重试） ====================
-def wechat_auto_login(openid, retries=3):
+# ==================== 微信自动登录（增强重试+日志） ====================
+def wechat_auto_login(openid, retries=5):
     """使用 openid 自动注册/登录 Supabase，支持多次重试"""
     email = f"{openid}@wechat.com"
+    logger.info(f"尝试自动登录/注册，email: {email}")
     for attempt in range(retries + 1):
         try:
             # 尝试登录
@@ -239,13 +243,15 @@ def wechat_auto_login(openid, retries=3):
                 supabase.postgrest.auth(res.session.access_token)
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30*24*60*60, path='/')
+                logger.info(f"✅ 用户 {email} 登录成功")
                 return True
         except Exception as e:
-            # 登录失败，尝试注册
+            logger.warning(f"登录尝试 {attempt+1} 失败: {e}")
+            # 尝试注册
             try:
                 res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
                 if res.user:
-                    # 注册成功后立即登录
+                    # 注册成功，立即登录
                     res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res2.user:
                         st.session_state.user = res2.user
@@ -253,28 +259,31 @@ def wechat_auto_login(openid, retries=3):
                         supabase.postgrest.auth(res2.session.access_token)
                         cookie_manager.set('refresh_token', res2.session.refresh_token,
                                            max_age=30*24*60*60, path='/')
+                        logger.info(f"✅ 用户 {email} 注册并登录成功")
                         return True
-            except:
-                pass
+            except Exception as e2:
+                logger.warning(f"注册尝试 {attempt+1} 失败: {e2}")
         if attempt < retries:
-            time.sleep(0.5)  # 重试等待
+            time.sleep(1)  # 每次重试间隔1秒
+    logger.error(f"❌ 自动登录失败，email: {email}")
     return False
 
 # ==================== URL 参数解析 ====================
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
+logger.info(f"接收到参数: tab={tab}, wechat_openid={wechat_openid}")
 
 # 如果存在 wechat_openid 且未登录，则尝试自动登录
 if wechat_openid and "user" not in st.session_state:
-    with st.spinner("⛓️ 正在通过微信认证..."):
+    with st.spinner("正在通过微信认证..."):
         success = wechat_auto_login(wechat_openid)
     if success:
+        logger.info("自动登录成功，正在刷新...")
         st.rerun()
     else:
-        # 自动登录失败，提示用户重试或使用邮箱
         st.warning("自动登录暂时不可用，请使用邮箱登录或稍后重试。")
-        # 保留邮箱登录选项
+        logger.warning("自动登录失败，显示邮箱登录选项")
 
 # 设置 active_tab
 if tab == "training":
@@ -298,7 +307,10 @@ user = st.session_state.user
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
-# -------------------- 侧边栏 --------------------
+# 如果自动登录成功，可以显示欢迎信息但去掉也可
+# st.success(f"欢迎 {user.email}")
+
+# -------------------- 侧边栏（功能完整） --------------------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
@@ -557,18 +569,19 @@ def render_calendar(year, month, trained_dates):
     st.markdown("""
     <style>
     .calendar { width: 100%; border-collapse: collapse; }
-    .calendar th { text-align: center; padding: 8px; background: #222; color: #aaa; border: 1px solid #333; }
-    .calendar td { padding: 0; text-align: center; vertical-align: middle; border: 1px solid #333; }
+    .calendar th { text-align: center; padding: 8px; background: #f1f5f9; color: #0f172a; border-radius: 8px; }
+    .calendar td { padding: 0; text-align: center; vertical-align: middle; }
     .cal-day {
         display: block; width: 100%; height: 60px;
-        line-height: 60px; border-radius: 0 !important;
-        text-decoration: none; color: #eee; font-weight: bold;
-        border: 2px solid transparent; transition: 0.2s;
+        line-height: 60px; border-radius: 12px;
+        text-decoration: none; color: #0f172a; font-weight: 600;
+        border: none;
+        transition: 0.15s;
     }
-    .cal-day:hover { border-color: #d4af37; }
-    .status-trained { background: #d4af37; color: #1a1a1a; }
-    .status-missed { background: #3a1a1a; color: #ff6b6b; }
-    .status-future { background: #1a1a1a; color: #555; }
+    .cal-day:hover { background: #e2e8f0; }
+    .status-trained { background: #2563eb; color: white; }
+    .status-missed { background: #fee2e2; color: #dc2626; }
+    .status-future { background: #f1f5f9; color: #94a3b8; }
     .status-empty { background: transparent; }
     </style>
     """, unsafe_allow_html=True)
