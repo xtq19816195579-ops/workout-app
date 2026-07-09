@@ -5,16 +5,11 @@ import calendar
 from supabase import create_client, Client
 import streamlit_cookies_controller as cookies
 import time
-import logging
 
-# 设置日志级别
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# -------------------- 初始化 --------------------
+# -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
-# ==================== 样式（清爽风格） ====================
+# ==================== 清爽高级风格 CSS ====================
 st.markdown("""
 <style>
     .stApp { background: #f8fafc; }
@@ -36,14 +31,24 @@ st.markdown("""
         color: white;
         border: none;
         box-shadow: 0 4px 12px rgba(37,99,235,0.2);
+        transition: all 0.2s;
     }
-    .stButton button:hover { background: #1d4ed8; }
+    .stButton button:hover { background: #1d4ed8; transform: scale(1.01); }
+    .stButton button:active { transform: scale(0.97); }
     .stTextInput > div, .stNumberInput > div, .stSelectbox > div, .stDateInput > div {
         background: #f1f5f9;
         border-radius: 12px;
         border: 1px solid #e2e8f0;
+        padding: 0.2rem 0.5rem;
+    }
+    .stTextInput input, .stNumberInput input, .stSelectbox select, .stDateInput input {
+        color: #0f172a !important;
+        font-size: 16px;
     }
     h1, h2, h3, h4 { color: #0f172a !important; font-weight: 600; }
+    h1 { font-size: 2rem !important; }
+    h2 { font-size: 1.5rem !important; }
+    h3 { font-size: 1.2rem !important; }
     .calendar td { padding: 4px !important; }
     .cal-day {
         height: 44px !important;
@@ -57,20 +62,65 @@ st.markdown("""
     .status-missed { background: #fee2e2 !important; color: #dc2626 !important; }
     .status-future { background: #f1f5f9 !important; color: #94a3b8 !important; }
     .css-1d391kg { background: #ffffff !important; border-right: 1px solid #e2e8f0; }
-    .stAlert { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; }
+    .css-1d391kg .stExpander {
+        background: #f8fafc;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 0.5rem;
+    }
+    .css-1d391kg .stExpander .streamlit-expanderHeader {
+        color: #0f172a;
+        font-weight: 500;
+    }
+    .css-1d391kg .stMarkdown, .css-1d391kg label { color: #334155 !important; }
+    hr { border-color: #e2e8f0; }
+    .stAlert {
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        color: #0f172a;
+    }
+    .stAlert .stAlertContent { color: #0f172a; }
+    .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"] {
+        background: #f1f5f9;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .stDateInput > div {
+        background: #f1f5f9;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+    .stMarkdown, .stText, .stCaption { color: #334155 !important; }
+    .stInfo, .stSuccess, .stWarning, .stError {
+        background: #f1f5f9 !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 12px !important;
+        color: #0f172a !important;
+    }
+    .stInfo .stAlertContent, .stSuccess .stAlertContent,
+    .stWarning .stAlertContent, .stError .stAlertContent {
+        color: #0f172a !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- Supabase 客户端 --------------------
+# -------------------- Cookie & Supabase 客户端 --------------------
 cookie_manager = cookies.CookieController()
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
-logger.info(f"固定密码: {WECHAT_FIXED_PASSWORD}")
+# 可选：使用 Service Role Key 自动确认邮箱
+SUPABASE_SERVICE_ROLE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+supabase_admin = None
+if SUPABASE_SERVICE_ROLE_KEY:
+    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# -------------------- 动作库（不变） --------------------
+# 固定密码（用于微信自动登录）
+WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
+
+# -------------------- 动作库 --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -95,7 +145,7 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# -------------------- 认证函数 --------------------
+# -------------------- 认证与持久化 --------------------
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
@@ -108,7 +158,6 @@ def restore_session():
                                max_age=30 * 24 * 60 * 60, path='/')
             return True
         except Exception as e:
-            logger.error(f"恢复会话失败: {e}")
             cookie_manager.remove('refresh_token', path='/')
     return False
 
@@ -145,15 +194,27 @@ def login_page():
             except Exception as e:
                 st.error(f"注册失败：{e}")
 
-# ==================== 核心：自动登录（增强重试+日志） ====================
-def wechat_auto_login(openid, retries=5):
-    """使用 openid 自动注册/登录，返回 bool"""
-    email = f"{openid}@wechat.com"
-    logger.info(f"尝试自动登录: {email}")
-    
-    for attempt in range(retries + 1):
+# ==================== URL 参数解析与自动登录（带详细调试） ====================
+query_params = st.query_params
+tab = query_params.get("tab", "home")
+wechat_openid = query_params.get("wechat_openid", "")
+
+# ---------- 调试信息（可保留或后续注释） ----------
+st.markdown("### 🔍 调试信息（仅供开发使用）")
+st.write(f"**接收到的 wechat_openid:** `{wechat_openid}`")
+st.write(f"**当前登录状态:** {'已登录' if 'user' in st.session_state else '未登录'}")
+if "user" in st.session_state:
+    st.write(f"**当前用户:** {st.session_state.user.email}")
+st.markdown("---")
+
+if wechat_openid and "user" not in st.session_state:
+    with st.spinner("正在尝试自动登录..."):
+        email = f"{wechat_openid}@wechat.com"
+        success = False
+        msg = ""
+
+        # 1. 尝试登录
         try:
-            # 尝试登录
             res = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
             if res.user:
                 st.session_state.user = res.user
@@ -161,15 +222,24 @@ def wechat_auto_login(openid, retries=5):
                 supabase.postgrest.auth(res.session.access_token)
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30*24*60*60, path='/')
-                logger.info(f"✅ 登录成功: {email}")
-                return True
+                success = True
+                msg = "登录成功"
         except Exception as e:
-            logger.warning(f"登录尝试 {attempt+1} 失败: {e}")
-            # 尝试注册
+            error_msg = str(e)
+            st.write(f"登录失败: {error_msg}")
+            # 2. 登录失败，尝试注册
             try:
                 res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
                 if res.user:
-                    # 注册成功，立即登录
+                    st.write("注册成功，正在尝试自动登录...")
+                    # 如果有 service role key，自动确认邮箱
+                    if supabase_admin:
+                        try:
+                            supabase_admin.auth.admin.update_user_by_id(res.user.id, {"email_confirm": True})
+                            st.write("已自动确认邮箱")
+                        except Exception as confirm_e:
+                            st.write(f"自动确认邮箱失败: {confirm_e}")
+                    # 注册后立即登录
                     res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res2.user:
                         st.session_state.user = res2.user
@@ -177,35 +247,27 @@ def wechat_auto_login(openid, retries=5):
                         supabase.postgrest.auth(res2.session.access_token)
                         cookie_manager.set('refresh_token', res2.session.refresh_token,
                                            max_age=30*24*60*60, path='/')
-                        logger.info(f"✅ 注册并登录成功: {email}")
-                        return True
+                        success = True
+                        msg = "注册并登录成功"
+                    else:
+                        msg = "注册后登录失败"
+                else:
+                    msg = "注册失败"
             except Exception as e2:
-                logger.warning(f"注册尝试 {attempt+1} 失败: {e2}")
-        if attempt < retries:
-            time.sleep(1)
-    logger.error(f"❌ 自动登录最终失败: {email}")
-    return False
+                msg = f"注册异常: {e2}"
+                st.write(f"注册异常: {e2}")
 
-# ==================== 解析 URL 参数 ====================
-query_params = st.query_params
-tab = query_params.get("tab", "home")
-wechat_openid = query_params.get("wechat_openid", "")
-logger.info(f"接收到参数 - tab: {tab}, wechat_openid: {wechat_openid}")
-
-# 如果未登录且有 openid，尝试自动登录
-if wechat_openid and "user" not in st.session_state:
-    # 显示加载中
-    with st.spinner("正在通过微信认证..."):
-        success = wechat_auto_login(wechat_openid)
-    if success:
-        st.success("自动登录成功！")
-        st.rerun()
-    else:
-        st.error("自动登录失败，请使用邮箱登录。")
-        # 打印详细错误到页面上（方便调试）
-        st.write("调试信息：请确认 Supabase 邮箱确认已关闭，且密码正确。")
-        # 这里可以显示 openid 以供调试
-        st.write(f"传递的 openid: {wechat_openid}")
+        if success:
+            st.success(f"✅ {msg}")
+            st.rerun()
+        else:
+            st.error(f"❌ 自动登录失败: {msg}")
+            st.write("**可能的原因及解决办法：**")
+            st.write("1. Supabase 的 `Confirm sign up` 未关闭 → 请在 Supabase 控制台关闭")
+            st.write("2. 网络问题 → 检查 Supabase URL 是否正确")
+            st.write("3. 密码不一致 → 检查 `WECHAT_FIXED_PASSWORD` 是否在 Secrets 中设置")
+            st.write("4. 用户已存在但密码不同 → 可手动在 Supabase 中删除该用户重试")
+            st.write("您也可以使用下方的邮箱登录。")
 
 # 设置 active_tab
 if tab == "training":
@@ -229,7 +291,7 @@ user = st.session_state.user
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
-# -------------------- 侧边栏（功能完整，省略重复部分，但必须保留） --------------------
+# -------------------- 侧边栏 --------------------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
@@ -304,7 +366,7 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"导出失败：{e}")
 
-    # 训练记录表单（快速记录）
+    # 训练记录表单
     st.header("📝 快速记录")
     if "record_parts" not in st.session_state:
         st.session_state.record_parts = []
