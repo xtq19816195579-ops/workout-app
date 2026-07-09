@@ -4,11 +4,12 @@ from datetime import datetime, date, timedelta
 import calendar
 from supabase import create_client, Client
 import streamlit_cookies_controller as cookies
+import urllib.parse
 
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="量化训练日志", page_icon="💪", layout="wide")
 
-# ==================== 移动端适配 CSS（新增） ====================
+# ==================== 移动端适配 CSS ====================
 st.markdown("""
 <style>
     /* 强制页面宽度适应手机 */
@@ -36,7 +37,7 @@ st.markdown("""
     .stTextInput, .stNumberInput, .stSelectbox, .stDateInput {
         font-size: 16px;
     }
-    /* 侧边栏在手机上默认折叠（可选） */
+    /* 侧边栏在手机上默认折叠 */
     .css-1d391kg {
         padding-top: 2rem;
     }
@@ -63,32 +64,26 @@ st.markdown("""
     .stSelectbox div[data-baseweb="select"] {
         min-height: 38px;
     }
-    /* 多选框优化 */
     .stMultiSelect div[data-baseweb="select"] {
         min-height: 38px;
     }
-    /* 调整间距 */
     .element-container {
         margin-bottom: 0.5rem;
     }
-    /* 侧边栏文字大小 */
     .sidebar-content {
         font-size: 0.9rem;
     }
-    /* 移动端Expander优化 */
     .streamlit-expanderHeader {
         font-size: 1rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
-# ================================================================
+# ===========================================================
 
+# -------------------- Cookie & Supabase 客户端 --------------------
 cookie_manager = cookies.CookieController()
-
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
-
-# 仅使用匿名客户端，所有操作通过用户 Token 进行 RLS 控制
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 # -------------------- 动作库 --------------------
@@ -118,7 +113,7 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# -------------------- 认证与持久化 --------------------
+# ==================== 认证与持久化 ====================
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
@@ -126,7 +121,6 @@ def restore_session():
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
             st.session_state.access_token = res.session.access_token
-            # 关键修复：将 access_token 绑定到 Supabase 客户端
             supabase.postgrest.auth(res.session.access_token)
             cookie_manager.set('refresh_token', res.session.refresh_token,
                                max_age=30 * 24 * 60 * 60, path='/')
@@ -167,7 +161,24 @@ def login_page():
             except Exception as e:
                 st.error("注册失败：" + str(e))
 
-# -------------------- 主程序 --------------------
+# ==================== 解析 URL 参数（支持 tab 跳转） ====================
+# 注意：此段在登录验证之前执行，以便根据参数调整后续显示
+query_params = st.query_params
+tab = query_params.get("tab", "home")
+if tab == "training":
+    st.session_state.active_tab = "训练记录"
+elif tab == "calendar":
+    st.session_state.active_tab = "日历"
+elif tab == "settings":
+    st.session_state.active_tab = "设置"
+elif tab == "report":
+    st.session_state.active_tab = "战报"
+else:
+    st.session_state.active_tab = "首页"
+# 可选：打印日志查看
+# st.write(f"当前标签页：{st.session_state.active_tab}")
+
+# ==================== 主程序 ====================
 if "user" not in st.session_state:
     if not restore_session():
         login_page()
