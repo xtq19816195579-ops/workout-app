@@ -157,7 +157,8 @@ def generate_report(user_id, workouts, total_duration, weight):
     report += f"🏋️ 训练部位：{'、'.join(parts)}\n"
     report += f"📊 完成动作：{'、'.join(actions)}\n"
     report += f"⏱️ 训练时长：{dur_str}\n"
-    report += f"🔥 估算消耗：{total_kcal} 千卡（基于体重{weight}kg及做功模型）\n"
+    # 修改：去掉括号中的说明
+    report += f"🔥 估算消耗：{total_kcal} 千卡\n"
     report += "✅ 详细记录：\n"
     for w in workouts:
         ex = w["exercise"]
@@ -166,7 +167,6 @@ def generate_report(user_id, workouts, total_duration, weight):
             sets = int(w["set_count"])
             report += f"  - {part} {ex}：{sets}组\n"
         else:
-            # 有氧显示时长
             dur = w["cardio_duration"] or 0
             report += f"  - {part} {ex}：{dur}分钟\n"
     report += "\n🚀 继续保持，你是最棒的！"
