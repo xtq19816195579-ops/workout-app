@@ -11,10 +11,10 @@ cookie_manager = cookies.CookieController()
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_ANON_KEY"]
-SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_ROLE_KEY", "")
+# 不再需要 SUPABASE_SERVICE_KEY，已移除
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-supabase_service = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else None
+# 不再创建 supabase_service
 
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
@@ -50,6 +50,8 @@ def restore_session():
             res = supabase.auth.sign_in_with_refresh_token(refresh_token)
             st.session_state.user = res.user
             st.session_state.access_token = res.session.access_token
+            # 将 token 绑定到 supabase 客户端
+            supabase.postgrest.auth(res.session.access_token)
             if res.session:
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
@@ -70,6 +72,8 @@ def login_page():
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
                 st.session_state.access_token = res.session.access_token
+                # 绑定 token
+                supabase.postgrest.auth(res.session.access_token)
                 cookie_manager.set('refresh_token', res.session.refresh_token,
                                    max_age=30 * 24 * 60 * 60, path='/')
                 st.rerun()
@@ -89,6 +93,7 @@ if "user" not in st.session_state:
         st.stop()
 
 user = st.session_state.user
+# 确保每次页面加载都绑定 token（以防刷新后丢失）
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
@@ -97,6 +102,7 @@ with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
         supabase.auth.sign_out()
+        # 清除客户端绑定
         supabase.postgrest.auth(None)
         cookie_manager.remove('refresh_token', path='/')
         for key in ["user", "access_token"]:
@@ -104,19 +110,16 @@ with st.sidebar:
                 del st.session_state[key]
         st.rerun()
 
-    # 个人设置（使用管理员客户端）
+    # 个人设置（使用用户 token 的客户端）
     with st.expander("⚙️ 个人设置", expanded=False):
+        # 读取当前用户的 profile
+        profile = {"weight": 70, "height": 175}  # 默认值
         try:
-            if supabase_service:
-                profile_res = supabase_service.table("profiles").select("*").eq("user_id", user.id).execute()
-                if profile_res.data:
-                    profile = profile_res.data[0]
-                else:
-                    profile = {"weight": 70, "height": 175}
-            else:
-                profile = {"weight": 70, "height": 175}
-        except:
-            profile = {"weight": 70, "height": 175}
+            profile_res = supabase.table("profiles").select("weight", "height").eq("user_id", user.id).execute()
+            if profile_res.data:
+                profile = profile_res.data[0]
+        except Exception as e:
+            st.warning(f"读取个人数据失败，使用默认值：{e}")
 
         weight = st.number_input("体重 (kg)", min_value=30.0, max_value=200.0,
                                  value=float(profile.get("weight", 70.0)), step=1.0, key="profile_weight")
@@ -124,15 +127,14 @@ with st.sidebar:
                                  value=int(profile.get("height", 175)), step=1, key="profile_height")
         if st.button("保存身体数据"):
             try:
-                if supabase_service:
-                    supabase_service.table("profiles").upsert({
-                        "user_id": user.id,
-                        "weight": weight,
-                        "height": height
-                    }).execute()
-                    st.success("身体数据已保存")
-                else:
-                    st.error("服务配置缺失")
+                # 使用 upsert 插入或更新
+                supabase.table("profiles").upsert({
+                    "user_id": user.id,
+                    "weight": weight,
+                    "height": height
+                }).execute()
+                st.success("身体数据已保存")
+                st.rerun()  # 刷新页面显示新数据
             except Exception as e:
                 st.error(f"保存失败：{e}")
 
