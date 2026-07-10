@@ -6,6 +6,7 @@ st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
 query_params = st.query_params
 
+# 非 WebView 模式直接提示
 if query_params.get("webview") != "1":
     st.write("请通过微信小程序访问")
     st.stop()
@@ -18,6 +19,7 @@ nickname = query_params.get("nickname", "微信用户")
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
 
+# 动作库
 body_parts = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -28,6 +30,8 @@ body_parts = {
     "腿部": ["深蹲", "腿举", "腿弯举", "腿屈伸", "箭步蹲", "罗马尼亚硬拉"],
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
+
+# MET 选项列表（无 None）
 cardio_met_options = [
     ("跑步 (8 km/h)", "8.0"),
     ("跑步 (10 km/h)", "10.0"),
@@ -42,6 +46,10 @@ cardio_met_options = [
     ("高强度间歇训练", "12.0"),
     ("自定义", "custom")
 ]
+
+# 构建通用样式和基础脚本（使用 JSON 转义防止注入）
+body_parts_json = json.dumps(body_parts)
+cardio_met_json = json.dumps(cardio_met_options)
 
 base_html = f"""
 <!DOCTYPE html>
@@ -83,7 +91,6 @@ base_html = f"""
         transition: transform 0.1s;
     }}
     .btn:active {{ transform: scale(0.97); }}
-    .btn-outline {{ background: transparent; color: #2563eb; border: 2px solid #2563eb; }}
     .input-group {{ margin-bottom: 14px; }}
     .input-group label {{ display: block; font-size: 14px; color: #334155; margin-bottom: 4px; font-weight: 500; }}
     .input-group input, .input-group select {{
@@ -196,8 +203,8 @@ base_html = f"""
     const SUPABASE_ANON_KEY = '{supabase_anon_key}';
     const WECHAT_FIXED_PASSWORD = 'wechat123';
 
-    const BODY_PARTS = {json.dumps(body_parts)};
-    const CARDIO_MET_OPTIONS = {json.dumps(cardio_met_options)};
+    const BODY_PARTS = {body_parts_json};
+    const CARDIO_MET_OPTIONS = {cardio_met_json};
 
     const WECHAT_OPENID = '{wechat_openid}';
     const AVATAR = '{avatar}';
@@ -229,7 +236,6 @@ base_html = f"""
             if (data.access_token) {{
                 accessToken = data.access_token;
                 userId = data.user.id;
-                // 更新 profile 中的头像和昵称（如果有）
                 if (AVATAR && NICKNAME) {{
                     await fetch(SUPABASE_URL + '/rest/v1/profiles', {{
                         method: 'PATCH',
@@ -315,9 +321,11 @@ base_html = f"""
 </script>
 """
 
-def render_page(html):
+# 页面渲染函数
+def render(html):
     st.markdown(html, unsafe_allow_html=True)
 
+# 根据 tab 构建页面
 if tab == "home":
     html = base_html + f"""
     <div class="brand"><h1>🦋 茧记</h1><p>记录 · 蜕变</p></div>
@@ -379,13 +387,11 @@ if tab == "home":
     """
 
 elif tab == "training":
-    # 生成部位选项
+    # 生成选项
     part_options = ''.join([f'<option value="{p}">{p}</option>' for p in body_parts.keys()])
-    # 生成MET选项（处理自定义）
-    met_options = ''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
-    # 生成动作选项（默认胸部）
     default_exercises = body_parts["胸部"]
     exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_exercises])
+    met_options = ''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
 
     html = base_html + f"""
     <div class="brand"><h1>🏋️ 训练记录</h1><p>记录每一次进步</p></div>
@@ -722,4 +728,4 @@ elif tab == "report":
 else:
     html = base_html + "<p>页面不存在</p>"
 
-render_page(html)
+render(html)
