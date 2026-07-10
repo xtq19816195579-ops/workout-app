@@ -9,27 +9,169 @@ import time
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
-# ==================== WebView 兼容性配置（新增） ====================
-# 此段代码强制 Streamlit 在 WebView 中启用更兼容的渲染模式
-st.markdown("""
-<script>
-    // 强制启用调试模式
-    window.streamlitDebug = true;
-    // 允许跨域
-    window.streamlitConfig = {
-        server: {
-            enableCORS: true,
-            enableXsrfProtection: false
-        }
-    };
-    // 告知 WebView 环境
-    window.__isWebView = true;
-    console.log('✅ WebView 兼容性脚本已执行');
-</script>
-""", unsafe_allow_html=True)
-
-# ==================== 测试模式：如果 URL 参数包含 test=1，则输出纯文本并退出 ====================
+# ==================== WebView 纯 HTML 模式（新增） ====================
+# 检测到 webview=1 参数时，直接输出纯静态 HTML，不依赖 Streamlit 的 JS 渲染
 query_params = st.query_params
+if query_params.get("webview") == "1":
+    # 获取 wechat_openid 用于后续扩展
+    wechat_openid = query_params.get("wechat_openid", "")
+    
+    st.markdown(f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        <title>茧记</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                background: #f8fafc;
+                padding: 20px 16px 40px;
+                min-height: 100vh;
+            }}
+            .container {{ max-width: 420px; margin: 0 auto; }}
+            .brand {{ text-align: center; margin-bottom: 24px; }}
+            .brand h1 {{ font-size: 28px; color: #0f172a; font-weight: 700; letter-spacing: 2px; }}
+            .brand p {{ color: #94a3b8; font-size: 14px; margin-top: 4px; }}
+            .card {{ 
+                background: white; 
+                border-radius: 20px; 
+                padding: 20px 24px; 
+                margin-bottom: 16px; 
+                box-shadow: 0 2px 12px rgba(0,0,0,0.04); 
+            }}
+            .user-row {{ display: flex; align-items: center; gap: 12px; }}
+            .avatar {{ 
+                width: 48px; height: 48px; 
+                border-radius: 50%; 
+                background: #e2e8f0; 
+                display: flex; align-items: center; justify-content: center; 
+                font-size: 24px; 
+                flex-shrink: 0;
+            }}
+            .user-name {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
+            .user-status {{ font-size: 12px; color: #94a3b8; }}
+            .badge {{ 
+                display: inline-block; 
+                padding: 2px 12px; 
+                border-radius: 20px; 
+                font-size: 12px; 
+                font-weight: 600; 
+                margin-left: auto;
+                background: #dcfce7; color: #16a34a;
+            }}
+            .menu-grid {{
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                margin-bottom: 16px;
+            }}
+            .menu-item {{
+                background: white;
+                border-radius: 16px;
+                padding: 16px 8px;
+                text-align: center;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+                cursor: pointer;
+                transition: transform 0.1s;
+                border: none;
+                width: 100%;
+            }}
+            .menu-item:active {{ transform: scale(0.94); }}
+            .menu-item .icon {{ font-size: 28px; display: block; margin-bottom: 4px; }}
+            .menu-item .label {{ font-size: 12px; color: #334155; font-weight: 500; }}
+            .summary-header {{ 
+                display: flex; justify-content: space-between; align-items: center; 
+                margin-bottom: 12px;
+            }}
+            .summary-title {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
+            .summary-count {{ 
+                font-size: 13px; color: #2563eb; 
+                background: #eff6ff; padding: 2px 14px; border-radius: 30px;
+            }}
+            .empty-text {{ text-align: center; color: #94a3b8; padding: 20px 0; font-size: 14px; }}
+            .footer {{ text-align: center; font-size: 12px; color: #94a3b8; margin-top: 20px; }}
+            .btn-primary {{
+                display: block; width: 100%; padding: 14px; 
+                background: #2563eb; color: white; border: none; border-radius: 60px;
+                font-size: 16px; font-weight: 600; text-align: center;
+                cursor: pointer; margin-top: 4px;
+            }}
+            .btn-primary:active {{ transform: scale(0.97); background: #1d4ed8; }}
+            .debug-info {{
+                background: #f1f5f9; border-radius: 12px; padding: 12px 16px;
+                font-size: 12px; color: #475569; margin-bottom: 16px;
+                border: 1px solid #e2e8f0;
+            }}
+            .debug-info strong {{ color: #0f172a; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="brand">
+            <h1>🦋 茧记</h1>
+            <p>记录 · 蜕变</p>
+        </div>
+
+        <!-- 调试信息（可保留或移除） -->
+        <div class="debug-info">
+            <strong>🔍 调试信息</strong><br>
+            接收到的 openid: <code>{wechat_openid}</code><br>
+            当前模式: 纯 HTML（WebView 兼容）
+        </div>
+
+        <!-- 用户卡片 -->
+        <div class="card">
+            <div class="user-row">
+                <div class="avatar">👤</div>
+                <div>
+                    <div class="user-name">微信用户</div>
+                    <div class="user-status">已登录 · 欢迎回来</div>
+                </div>
+                <span class="badge">在线</span>
+            </div>
+        </div>
+
+        <!-- 功能菜单 -->
+        <div class="menu-grid">
+            <button class="menu-item" onclick="alert('训练记录功能开发中')">
+                <span class="icon">🏋️</span>
+                <span class="label">训练记录</span>
+            </button>
+            <button class="menu-item" onclick="alert('训练日历功能开发中')">
+                <span class="icon">📅</span>
+                <span class="label">训练日历</span>
+            </button>
+            <button class="menu-item" onclick="alert('个人设置功能开发中')">
+                <span class="icon">⚙️</span>
+                <span class="label">个人设置</span>
+            </button>
+            <button class="menu-item" onclick="alert('今日战报功能开发中')">
+                <span class="icon">📊</span>
+                <span class="label">今日战报</span>
+            </button>
+        </div>
+
+        <!-- 今日概览 -->
+        <div class="card">
+            <div class="summary-header">
+                <span class="summary-title">📋 今日训练</span>
+                <span class="summary-count">0 项</span>
+            </div>
+            <div class="empty-text">今天还没有训练记录，开始吧 💪</div>
+        </div>
+
+        <!-- 底部 -->
+        <div class="footer">数据安全加密 · Supabase 动力</div>
+    </div>
+</body>
+</html>
+""", unsafe_allow_html=True)
+    st.stop()  # 停止执行后续所有代码
+
+# ==================== 测试模式（test=1，保留原有） ====================
 if query_params.get("test") == "1":
     st.markdown("""
     <div style="padding: 2rem; text-align: center; font-family: sans-serif;">
@@ -41,7 +183,7 @@ if query_params.get("test") == "1":
     """, unsafe_allow_html=True)
     st.stop()
 
-# ==================== 清爽高级风格 CSS ====================
+# ==================== 清爽高级风格 CSS（原有） ====================
 st.markdown("""
 <style>
     .stApp { background: #f8fafc; }
@@ -152,7 +294,7 @@ if SUPABASE_SERVICE_ROLE_KEY:
 # 固定密码（用于微信自动登录）
 WECHAT_FIXED_PASSWORD = st.secrets.get("WECHAT_FIXED_PASSWORD", "wechat123")
 
-# -------------------- 动作库 --------------------
+# -------------------- 动作库（原有） --------------------
 BODY_PARTS = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -177,7 +319,7 @@ CARDIO_MET_OPTIONS = {
     "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
 }
 
-# -------------------- 认证与持久化 --------------------
+# -------------------- 认证与持久化（原有） --------------------
 def restore_session():
     refresh_token = cookie_manager.get('refresh_token')
     if refresh_token:
@@ -226,12 +368,13 @@ def login_page():
             except Exception as e:
                 st.error(f"注册失败：{e}")
 
-# ==================== URL 参数解析与自动登录（带详细调试） ====================
+# ==================== URL 参数解析与自动登录（原有） ====================
+# 注意：webview=1 和 test=1 已在前面被捕获，不会执行到这里
 query_params = st.query_params
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
 
-# ---------- 调试信息（可保留或后续注释） ----------
+# 调试信息
 st.markdown("### 🔍 调试信息（仅供开发使用）")
 st.write(f"**接收到的 wechat_openid:** `{wechat_openid}`")
 st.write(f"**当前登录状态:** {'已登录' if 'user' in st.session_state else '未登录'}")
@@ -259,17 +402,14 @@ if wechat_openid and "user" not in st.session_state:
         except Exception as e:
             error_msg = str(e)
             st.write(f"登录失败: {error_msg}")
-            # 如果是邮箱未确认，且有 admin 客户端，尝试自动确认
             if "Email not confirmed" in error_msg and supabase_admin:
                 try:
-                    # 查找用户ID
                     user_list = supabase_admin.auth.admin.list_users()
                     for user in user_list.users:
                         if user.email == email:
                             supabase_admin.auth.admin.update_user_by_id(user.id, {"email_confirm": True})
                             st.write("已自动确认邮箱")
                             break
-                    # 重新尝试登录
                     res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res2.user:
                         st.session_state.user = res2.user
@@ -282,20 +422,17 @@ if wechat_openid and "user" not in st.session_state:
                 except Exception as confirm_e:
                     st.write(f"自动确认邮箱失败: {confirm_e}")
 
-            # 如果登录失败且未成功，尝试注册
             if not success:
                 try:
                     res = supabase.auth.sign_up({"email": email, "password": WECHAT_FIXED_PASSWORD})
                     if res.user:
                         st.write("注册成功，正在尝试自动登录...")
-                        # 如果有 service role key，自动确认邮箱
                         if supabase_admin:
                             try:
                                 supabase_admin.auth.admin.update_user_by_id(res.user.id, {"email_confirm": True})
                                 st.write("已自动确认邮箱")
                             except Exception as confirm_e:
                                 st.write(f"自动确认邮箱失败: {confirm_e}")
-                        # 注册后立即登录
                         res2 = supabase.auth.sign_in_with_password({"email": email, "password": WECHAT_FIXED_PASSWORD})
                         if res2.user:
                             st.session_state.user = res2.user
@@ -338,7 +475,7 @@ elif tab == "report":
 else:
     st.session_state.active_tab = "首页"
 
-# ==================== 主程序 ====================
+# ==================== 主程序（原有） ====================
 if "user" not in st.session_state:
     if not restore_session():
         login_page()
@@ -348,7 +485,7 @@ user = st.session_state.user
 if "access_token" in st.session_state:
     supabase.postgrest.auth(st.session_state.access_token)
 
-# -------------------- 侧边栏 --------------------
+# -------------------- 侧边栏（原有） --------------------
 with st.sidebar:
     st.write(f"👤 {user.email}")
     if st.button("退出登录"):
@@ -496,7 +633,7 @@ with st.sidebar:
                 st.balloons()
                 st.rerun()
 
-# -------------------- 主界面：计时器与日历 --------------------
+# -------------------- 主界面：计时器与日历（原有） --------------------
 st.title("💪 量化训练日志")
 st.markdown("---")
 st.subheader("⏱️ 训练计时器")
