@@ -6,10 +6,12 @@ st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
 query_params = st.query_params
 
-# 非 WebView 模式直接提示
 if query_params.get("webview") != "1":
     st.write("请通过微信小程序访问")
     st.stop()
+
+# 调试：确认进入 webview 模式
+st.write("✅ 进入 WebView 模式")  # 这行会在页面顶部显示，确认执行
 
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
@@ -31,7 +33,6 @@ body_parts = {
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
 
-# MET 选项列表（无 None）
 cardio_met_options = [
     ("跑步 (8 km/h)", "8.0"),
     ("跑步 (10 km/h)", "10.0"),
@@ -47,10 +48,11 @@ cardio_met_options = [
     ("自定义", "custom")
 ]
 
-# 构建通用样式和基础脚本（使用 JSON 转义防止注入）
 body_parts_json = json.dumps(body_parts)
 cardio_met_json = json.dumps(cardio_met_options)
 
+# 基础 HTML 模板（与之前相同，但为了安全，将所有双花括号替换为单花括号的转义形式）
+# 注意：在 f-string 中，JavaScript 模板字面量需要使用 {{ 和 }} 转义
 base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -321,11 +323,11 @@ base_html = f"""
 </script>
 """
 
-# 页面渲染函数
 def render(html):
-    st.markdown(html, unsafe_allow_html=True)
+    # 使用 st.components.v1.html 确保完整渲染
+    st.components.v1.html(html, height=800, scrolling=True)
 
-# 根据 tab 构建页面
+# 根据 tab 构建页面（所有页面内容与之前相同，但用 render 函数输出）
 if tab == "home":
     html = base_html + f"""
     <div class="brand"><h1>🦋 茧记</h1><p>记录 · 蜕变</p></div>
@@ -387,7 +389,6 @@ if tab == "home":
     """
 
 elif tab == "training":
-    # 生成选项
     part_options = ''.join([f'<option value="{p}">{p}</option>' for p in body_parts.keys()])
     default_exercises = body_parts["胸部"]
     exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_exercises])
