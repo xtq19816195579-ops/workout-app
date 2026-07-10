@@ -18,18 +18,21 @@ nickname = query_params.get("nickname", "微信用户")
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
 
-# 动作库
-body_parts = {
+# 动作库（分为力量和有氧）
+strength_parts = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
     "背部": ["引体向上", "杠铃划船", "哑铃划船", "高位下拉", "坐姿划船", "硬拉"],
     "二头": ["杠铃弯举", "哑铃弯举", "锤式弯举", "集中弯举", "牧师凳弯举"],
     "三头": ["窄距卧推", "绳索下压", "哑铃臂屈伸", "双杠臂屈伸", "俯身臂屈伸"],
     "腹部": ["卷腹", "平板支撑", "仰卧抬腿", "俄罗斯转体", "悬垂举腿", "健腹轮"],
-    "腿部": ["深蹲", "腿举", "腿弯举", "腿屈伸", "箭步蹲", "罗马尼亚硬拉"],
-    "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
+    "腿部": ["深蹲", "腿举", "腿弯举", "腿屈伸", "箭步蹲", "罗马尼亚硬拉"]
+}
+cardio_parts = {
+    "有氧": ["跑步", "慢跑", "跳绳", "游泳", "骑行", "椭圆机", "划船机", "高强度间歇训练", "波比跳", "壶铃摆荡", "战绳"]
 }
 
+# MET 选项
 cardio_met_options = [
     ("跑步 (8 km/h)", "8.0"),
     ("跑步 (10 km/h)", "10.0"),
@@ -45,10 +48,11 @@ cardio_met_options = [
     ("自定义", "custom")
 ]
 
-body_parts_json = json.dumps(body_parts)
+strength_parts_json = json.dumps(strength_parts)
+cardio_parts_json = json.dumps(cardio_parts)
 cardio_met_json = json.dumps(cardio_met_options)
 
-# 基础 HTML 模板
+# 基础 HTML 模板（保持不变）
 base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -89,6 +93,8 @@ base_html = f"""
         transition: transform 0.1s;
     }}
     .btn:active {{ transform: scale(0.97); }}
+    .btn-danger {{ background: #ef4444; }}
+    .btn-success {{ background: #22c55e; }}
     .input-group {{ margin-bottom: 14px; }}
     .input-group label {{ display: block; font-size: 14px; color: #334155; margin-bottom: 4px; font-weight: 500; }}
     .input-group input, .input-group select {{
@@ -191,6 +197,18 @@ base_html = f"""
     .month-nav {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
     .month-nav span {{ font-weight: 600; color: #0f172a; }}
     .month-nav button {{ background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 12px; }}
+    .group-item {{
+        display: flex; gap: 10px; align-items: center; margin-bottom: 8px;
+    }}
+    .group-item input {{
+        flex: 1;
+    }}
+    .group-item .remove-btn {{
+        background: #ef4444; color: white; border: none; border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer;
+    }}
+    .add-group-btn {{
+        background: #22c55e; color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; width: 100%;
+    }}
 </style>
 </head>
 <body>
@@ -201,7 +219,8 @@ base_html = f"""
     const SUPABASE_ANON_KEY = '{supabase_anon_key}';
     const WECHAT_FIXED_PASSWORD = 'wechat123';
 
-    const BODY_PARTS = {body_parts_json};
+    const STRENGTH_PARTS = {strength_parts_json};
+    const CARDIO_PARTS = {cardio_parts_json};
     const CARDIO_MET_OPTIONS = {cardio_met_json};
 
     const WECHAT_OPENID = '{wechat_openid}';
@@ -322,7 +341,7 @@ base_html = f"""
 def render(html):
     st.html(html)
 
-# 根据 tab 构建页面
+# ---------- 首页 ----------
 if tab == "home":
     html = base_html + f"""
     <div class="brand"><h1>🦋 茧记</h1><p>记录 · 蜕变</p></div>
@@ -383,10 +402,17 @@ if tab == "home":
     </script>
     """
 
+# ---------- 训练记录（重构） ----------
 elif tab == "training":
-    part_options = ''.join([f'<option value="{p}">{p}</option>' for p in body_parts.keys()])
-    default_exercises = body_parts["胸部"]
-    exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_exercises])
+    # 生成力量部位选项
+    strength_part_options = ''.join([f'<option value="{p}">{p}</option>' for p in strength_parts.keys()])
+    # 默认动作（第一个部位的第一个动作）
+    default_strength_part = list(strength_parts.keys())[0]
+    default_strength_exercises = strength_parts[default_strength_part]
+    strength_exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_strength_exercises])
+    # 有氧动作（全部有氧）
+    cardio_exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in cardio_parts["有氧"]])
+    # MET 选项
     met_options = ''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
 
     html = base_html + f"""
@@ -397,22 +423,28 @@ elif tab == "training":
             <button id="modeCardio" onclick="switchMode('cardio')">🏃 有氧</button>
         </div>
         <form id="workoutForm">
-            <div class="input-group"><label>部位</label>
-                <select id="bodyPart" onchange="updateExercises()">
-                    {part_options}
-                </select>
-            </div>
-            <div class="input-group"><label>动作</label>
-                <select id="exercise">
-                    {exercise_options}
-                </select>
-            </div>
             <div id="strengthFields">
-                <div class="input-group"><label>组数</label><input type="number" id="setCount" value="3" min="1"></div>
-                <div class="input-group"><label>次数</label><input type="number" id="reps" value="10" min="1"></div>
-                <div class="input-group"><label>重量 (kg)</label><input type="number" id="weight" value="20" step="2.5" min="0"></div>
+                <div class="input-group"><label>部位</label>
+                    <select id="strengthPart" onchange="updateStrengthExercises()">
+                        {strength_part_options}
+                    </select>
+                </div>
+                <div class="input-group"><label>动作</label>
+                    <select id="strengthExercise">
+                        {strength_exercise_options}
+                    </select>
+                </div>
+                <div class="input-group"><label>组数</label>
+                    <input type="number" id="setCount" value="3" min="1" onchange="generateGroupInputs()">
+                </div>
+                <div id="groupContainer"></div>
             </div>
             <div id="cardioFields" class="hidden">
+                <div class="input-group"><label>动作</label>
+                    <select id="cardioExercise">
+                        {cardio_exercise_options}
+                    </select>
+                </div>
                 <div class="input-group"><label>时长 (分钟)</label><input type="number" id="cardioDuration" value="30" min="1"></div>
                 <div class="input-group"><label>强度 (MET)</label>
                     <select id="metSelect">
@@ -429,18 +461,41 @@ elif tab == "training":
     <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据将存储于 Supabase · 安全加密</div>
     <script>
-        function updateExercises() {{
-            const part = document.getElementById('bodyPart').value;
-            const exSelect = document.getElementById('exercise');
-            const exercises = BODY_PARTS[part] || [];
+        // 生成组输入框
+        function generateGroupInputs() {{
+            const count = parseInt(document.getElementById('setCount').value) || 0;
+            const container = document.getElementById('groupContainer');
+            container.innerHTML = '';
+            for (let i = 0; i < count; i++) {{
+                const div = document.createElement('div');
+                div.className = 'group-item';
+                div.innerHTML = `
+                    <span style="font-weight:500; font-size:14px;">${{i+1}}.</span>
+                    <input type="number" placeholder="次数" class="group-reps" value="10" min="1" style="flex:1;">
+                    <input type="number" placeholder="重量(kg)" class="group-weight" value="20" step="2.5" min="0" style="flex:1;">
+                `;
+                container.appendChild(div);
+            }}
+        }}
+
+        // 更新力量动作列表
+        function updateStrengthExercises() {{
+            const part = document.getElementById('strengthPart').value;
+            const exSelect = document.getElementById('strengthExercise');
+            const exercises = STRENGTH_PARTS[part] || [];
             exSelect.innerHTML = exercises.map(e => `<option value="${{e}}">${{e}}</option>`).join('');
         }}
+
+        // 切换模式
         function switchMode(mode) {{
             document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
             document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
             document.getElementById('strengthFields').classList.toggle('hidden', mode !== 'strength');
             document.getElementById('cardioFields').classList.toggle('hidden', mode !== 'cardio');
+            if (mode === 'strength') generateGroupInputs();
         }}
+
+        // MET 自定义切换
         document.getElementById('metSelect').addEventListener('change', function() {{
             const customGroup = document.getElementById('customMetGroup');
             if (this.value === 'custom') {{
@@ -449,44 +504,71 @@ elif tab == "training":
                 customGroup.classList.add('hidden');
             }}
         }});
+
+        // 保存训练记录
         async function saveWorkout() {{
             if (!accessToken) {{
                 showToast('请先登录');
                 return;
             }}
-            const part = document.getElementById('bodyPart').value;
-            const exercise = document.getElementById('exercise').value;
             const mode = document.getElementById('modeStrength').classList.contains('active') ? 'strength' : 'cardio';
             let data = {{
                 user_id: userId,
                 date: new Date().toISOString().slice(0,10),
-                body_part: part,
-                exercise: exercise,
+                body_part: '',
+                exercise: '',
                 set_count: 0,
                 details: '',
                 cardio_duration: null,
                 met_value: null
             }};
+
             if (mode === 'strength') {{
-                const sets = parseInt(document.getElementById('setCount').value);
-                const reps = parseInt(document.getElementById('reps').value);
-                const weight = parseFloat(document.getElementById('weight').value);
-                data.set_count = sets;
-                data.details = `${{reps}}次×${{weight}}kg`;
+                const part = document.getElementById('strengthPart').value;
+                const exercise = document.getElementById('strengthExercise').value;
+                const repsInputs = document.querySelectorAll('.group-reps');
+                const weightInputs = document.querySelectorAll('.group-weight');
+                let details = [];
+                for (let i = 0; i < repsInputs.length; i++) {{
+                    const reps = parseInt(repsInputs[i].value) || 0;
+                    const weight = parseFloat(weightInputs[i].value) || 0;
+                    if (reps > 0) details.push(`${{reps}}次×${{weight}}kg`);
+                }}
+                if (details.length === 0) {{
+                    showToast('请至少设置一组有效数据');
+                    return;
+                }}
+                data.body_part = part;
+                data.exercise = exercise;
+                data.set_count = details.length;
+                data.details = details.join('; ');
             }} else {{
-                const duration = parseInt(document.getElementById('cardioDuration').value);
+                const exercise = document.getElementById('cardioExercise').value;
+                const duration = parseInt(document.getElementById('cardioDuration').value) || 0;
                 const metSelect = document.getElementById('metSelect');
                 let met = parseFloat(metSelect.value);
                 if (metSelect.value === 'custom') {{
                     met = parseFloat(document.getElementById('customMet').value);
                 }}
+                if (duration <= 0) {{
+                    showToast('请输入有效时长');
+                    return;
+                }}
+                data.body_part = '有氧';
+                data.exercise = exercise;
                 data.cardio_duration = duration;
                 data.met_value = met;
             }}
+
             try {{
                 const resp = await supabaseRequest('POST', '/rest/v1/workouts', data);
                 if (resp.length) {{
                     showToast('保存成功！');
+                    // 重置表单（可选）
+                    if (mode === 'strength') {{
+                        document.getElementById('setCount').value = 3;
+                        generateGroupInputs();
+                    }}
                 }} else {{
                     showToast('保存失败，请重试');
                 }}
@@ -495,11 +577,15 @@ elif tab == "training":
                 showToast('保存异常，请重试');
             }}
         }}
+
+        // 初始化组输入
+        generateGroupInputs();
         // 初始化动作
-        updateExercises();
+        updateStrengthExercises();
     </script>
     """
 
+# ---------- 训练日历（修复加载） ----------
 elif tab == "calendar":
     html = base_html + f"""
     <div class="brand"><h1>📅 训练日历</h1><p id="monthYear">2026年7月</p></div>
@@ -510,6 +596,9 @@ elif tab == "calendar":
             <button id="nextMonth">▶</button>
         </div>
         <div id="calendarGrid" class="calendar-grid"></div>
+        <div style="margin-top: 16px; text-align: center;">
+            <span style="font-size:14px; color:#475569;">本月出勤：<span id="attendanceCount">0</span> 天</span>
+        </div>
     </div>
     <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
     <div class="footer">绿色日期表示有训练记录</div>
@@ -530,8 +619,8 @@ elif tab == "calendar":
                 const trainedDates = new Set(resp.map(w => w.date));
                 renderCalendar(year, month, trainedDates);
             }} catch(e) {{
-                console.error(e);
-                showToast('加载日历失败');
+                console.error('加载日历失败:', e);
+                showToast('加载日历失败，请重试');
             }}
         }}
 
@@ -543,14 +632,17 @@ elif tab == "calendar":
             for (let i = 0; i < firstDay; i++) {{
                 html += '<div class="day-cell empty"></div>';
             }}
+            let trainedCount = 0;
             for (let d = 1; d <= daysInMonth; d++) {{
                 const dateStr = new Date(year, month, d).toISOString().slice(0,10);
                 const trained = trainedDates.has(dateStr);
+                if (trained) trainedCount++;
                 html += `<div class="day-cell ${{trained ? 'trained' : ''}}">${{d}}</div>`;
             }}
             grid.innerHTML = html;
             document.getElementById('currentMonth').textContent = year + '年' + monthNames[month];
             document.getElementById('monthYear').textContent = year + '年' + monthNames[month];
+            document.getElementById('attendanceCount').textContent = trainedCount;
         }}
 
         document.getElementById('prevMonth').addEventListener('click', function() {{
@@ -565,12 +657,14 @@ elif tab == "calendar":
         window.refreshData = function() {{
             loadCalendar(currentYear, currentMonth);
         }};
+        // 延迟加载等待登录完成
         setTimeout(() => {{
             if (accessToken) loadCalendar(currentYear, currentMonth);
-        }}, 500);
+        }}, 1000);
     </script>
     """
 
+# ---------- 个人设置 ----------
 elif tab == "settings":
     html = base_html + f"""
     <div class="brand"><h1>⚙️ 个人设置</h1><p>管理您的身体数据</p></div>
@@ -654,6 +748,7 @@ elif tab == "settings":
     </script>
     """
 
+# ---------- 今日战报 ----------
 elif tab == "report":
     html = base_html + f"""
     <div class="brand"><h1>📊 今日战报</h1><p id="reportDate">{datetime.now().strftime("%Y年%m月%d日")}</p></div>
