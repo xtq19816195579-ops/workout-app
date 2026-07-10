@@ -18,7 +18,7 @@ nickname = query_params.get("nickname", "微信用户")
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
 
-# 动作库（分为力量和有氧）
+# ---------- 动作库 ----------
 strength_parts = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -31,8 +31,6 @@ strength_parts = {
 cardio_parts = {
     "有氧": ["跑步", "慢跑", "跳绳", "游泳", "骑行", "椭圆机", "划船机", "高强度间歇训练", "波比跳", "壶铃摆荡", "战绳"]
 }
-
-# MET 选项
 cardio_met_options = [
     ("跑步 (8 km/h)", "8.0"),
     ("跑步 (10 km/h)", "10.0"),
@@ -52,7 +50,7 @@ strength_parts_json = json.dumps(strength_parts)
 cardio_parts_json = json.dumps(cardio_parts)
 cardio_met_json = json.dumps(cardio_met_options)
 
-# 基础 HTML 模板（保持不变）
+# ---------- 基础 HTML ----------
 base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -70,31 +68,12 @@ base_html = f"""
         max-width: 420px;
         margin: 0 auto;
     }}
-    .card {{
-        background: white;
-        border-radius: 20px;
-        padding: 20px 24px;
-        margin-bottom: 16px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.04);
-    }}
-    .btn {{
-        display: block;
-        width: 100%;
-        padding: 14px;
-        background: #2563eb;
-        color: white;
-        border: none;
-        border-radius: 60px;
-        font-size: 16px;
-        font-weight: 600;
-        text-align: center;
-        cursor: pointer;
-        text-decoration: none;
-        transition: transform 0.1s;
-    }}
+    .card {{ background: white; border-radius: 20px; padding: 20px 24px; margin-bottom: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); }}
+    .btn {{ display: block; width: 100%; padding: 14px; background: #2563eb; color: white; border: none; border-radius: 60px; font-size: 16px; font-weight: 600; text-align: center; cursor: pointer; text-decoration: none; transition: transform 0.1s; }}
     .btn:active {{ transform: scale(0.97); }}
     .btn-danger {{ background: #ef4444; }}
     .btn-success {{ background: #22c55e; }}
+    .btn-secondary {{ background: #6b7280; }}
     .input-group {{ margin-bottom: 14px; }}
     .input-group label {{ display: block; font-size: 14px; color: #334155; margin-bottom: 4px; font-weight: 500; }}
     .input-group input, .input-group select {{
@@ -108,52 +87,17 @@ base_html = f"""
         transition: border-color 0.2s;
     }}
     .input-group input:focus, .input-group select:focus {{ border-color: #2563eb; }}
-    .back-link {{
-        display: block;
-        text-align: center;
-        margin-top: 20px;
-        color: #2563eb;
-        text-decoration: none;
-        font-size: 14px;
-    }}
+    .back-link {{ display: block; text-align: center; margin-top: 20px; color: #2563eb; text-decoration: none; font-size: 14px; }}
     .brand {{ text-align: center; margin-bottom: 24px; }}
     .brand h1 {{ font-size: 28px; color: #0f172a; font-weight: 700; letter-spacing: 1px; }}
     .brand p {{ color: #94a3b8; font-size: 14px; margin-top: 4px; }}
-    .menu-grid {{
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 12px;
-        margin-bottom: 16px;
-    }}
-    .menu-item {{
-        background: white;
-        border-radius: 16px;
-        padding: 16px 8px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        cursor: pointer;
-        text-decoration: none;
-        transition: transform 0.1s;
-        display: block;
-    }}
+    .menu-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }}
+    .menu-item {{ background: white; border-radius: 16px; padding: 16px 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.04); cursor: pointer; text-decoration: none; transition: transform 0.1s; display: block; }}
     .menu-item:active {{ transform: scale(0.94); }}
     .menu-item .icon {{ font-size: 28px; display: block; margin-bottom: 4px; }}
     .menu-item .label {{ font-size: 12px; color: #334155; font-weight: 500; }}
-    .badge {{
-        display: inline-block;
-        padding: 2px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 600;
-        background: #dcfce7;
-        color: #16a34a;
-    }}
-    .stat-row {{
-        display: flex;
-        justify-content: space-between;
-        padding: 10px 0;
-        border-bottom: 1px solid #f1f5f9;
-    }}
+    .badge {{ display: inline-block; padding: 2px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #dcfce7; color: #16a34a; }}
+    .stat-row {{ display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f1f5f9; }}
     .stat-row:last-child {{ border-bottom: none; }}
     .stat-label {{ color: #475569; }}
     .stat-value {{ font-weight: 600; color: #0f172a; }}
@@ -162,67 +106,37 @@ base_html = f"""
     .user-row {{ display: flex; align-items: center; gap: 12px; }}
     .user-name {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
     .user-status {{ font-size: 12px; color: #94a3b8; }}
-    .toast {{
-        position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-        background: #0f172a; color: white; padding: 10px 20px; border-radius: 12px;
-        font-size: 14px; z-index: 9999; display: none;
-    }}
-    .switch-mode {{
-        display: flex; gap: 12px; margin-bottom: 16px;
-    }}
-    .switch-mode button {{
-        flex: 1; padding: 10px; border: 2px solid #e2e8f0; background: white; border-radius: 12px;
-        font-size: 14px; font-weight: 500; cursor: pointer;
-    }}
+    .toast {{ position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #0f172a; color: white; padding: 10px 20px; border-radius: 12px; font-size: 14px; z-index: 9999; display: none; }}
+    .switch-mode {{ display: flex; gap: 12px; margin-bottom: 16px; }}
+    .switch-mode button {{ flex: 1; padding: 10px; border: 2px solid #e2e8f0; background: white; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; }}
     .switch-mode button.active {{ border-color: #2563eb; background: #eff6ff; color: #2563eb; }}
     .hidden {{ display: none; }}
-    .calendar-grid {{
-        display: grid;
-        grid-template-columns: repeat(7, 1fr);
-        gap: 6px;
-        margin-top: 12px;
-    }}
-    .day-cell {{
-        text-align: center;
-        padding: 10px 0;
-        border-radius: 12px;
-        background: #f1f5f9;
-        font-size: 14px;
-        font-weight: 500;
-        color: #0f172a;
-    }}
+    .calendar-grid {{ display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 12px; }}
+    .day-cell {{ text-align: center; padding: 10px 0; border-radius: 12px; background: #f1f5f9; font-size: 14px; font-weight: 500; color: #0f172a; }}
     .day-cell.trained {{ background: #2563eb; color: white; }}
     .day-cell.empty {{ background: transparent; }}
     .day-cell.weekend {{ color: #94a3b8; }}
     .month-nav {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }}
     .month-nav span {{ font-weight: 600; color: #0f172a; }}
     .month-nav button {{ background: none; border: none; font-size: 20px; cursor: pointer; padding: 0 12px; }}
-    .group-item {{
-        display: flex; gap: 10px; align-items: center; margin-bottom: 8px;
-    }}
-    .group-item input {{
-        flex: 1;
-    }}
-    .group-item .remove-btn {{
-        background: #ef4444; color: white; border: none; border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer;
-    }}
-    .add-group-btn {{
-        background: #22c55e; color: white; border: none; border-radius: 8px; padding: 8px 16px; font-size: 14px; cursor: pointer; width: 100%;
-    }}
+    .group-item {{ display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }}
+    .group-item input {{ flex: 1; padding: 8px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; }}
+    .group-item .remove-btn {{ background: #ef4444; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }}
+    .add-btn {{ background: #22c55e; color: white; border: none; border-radius: 8px; padding: 6px 12px; font-size: 14px; cursor: pointer; margin-top: 4px; }}
+    .add-btn-small {{ background: #22c55e; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }}
+    .remove-btn-red {{ background: #ef4444; color: white; border: none; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }}
+    .block-container {{ margin-bottom: 16px; padding: 12px; background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; }}
 </style>
 </head>
 <body>
 <div id="toast" class="toast"></div>
-
 <script>
     const SUPABASE_URL = '{supabase_url}';
     const SUPABASE_ANON_KEY = '{supabase_anon_key}';
     const WECHAT_FIXED_PASSWORD = 'wechat123';
-
     const STRENGTH_PARTS = {strength_parts_json};
     const CARDIO_PARTS = {cardio_parts_json};
     const CARDIO_MET_OPTIONS = {cardio_met_json};
-
     const WECHAT_OPENID = '{wechat_openid}';
     const AVATAR = '{avatar}';
     const NICKNAME = '{nickname}';
@@ -356,14 +270,14 @@ if tab == "home":
         </div>
     </div>
     <div class="menu-grid">
-        <a href="?webview=1&tab=training&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
-            <span class="icon">🏋️</span><span class="label">训练记录</span>
+        <a href="?webview=1&tab=settings&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+            <span class="icon">⚙️</span><span class="label">个人设置</span>
         </a>
         <a href="?webview=1&tab=calendar&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
             <span class="icon">📅</span><span class="label">训练日历</span>
         </a>
-        <a href="?webview=1&tab=settings&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
-            <span class="icon">⚙️</span><span class="label">个人设置</span>
+        <a href="?webview=1&tab=training&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+            <span class="icon">🏋️</span><span class="label">训练记录</span>
         </a>
         <a href="?webview=1&tab=report&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
             <span class="icon">📊</span><span class="label">今日战报</span>
@@ -399,268 +313,6 @@ if tab == "home":
                 console.error(e);
             }}
         }};
-    </script>
-    """
-
-# ---------- 训练记录（重构） ----------
-elif tab == "training":
-    # 生成力量部位选项
-    strength_part_options = ''.join([f'<option value="{p}">{p}</option>' for p in strength_parts.keys()])
-    # 默认动作（第一个部位的第一个动作）
-    default_strength_part = list(strength_parts.keys())[0]
-    default_strength_exercises = strength_parts[default_strength_part]
-    strength_exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_strength_exercises])
-    # 有氧动作（全部有氧）
-    cardio_exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in cardio_parts["有氧"]])
-    # MET 选项
-    met_options = ''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
-
-    html = base_html + f"""
-    <div class="brand"><h1>🏋️ 训练记录</h1><p>记录每一次进步</p></div>
-    <div class="card">
-        <div class="switch-mode">
-            <button id="modeStrength" class="active" onclick="switchMode('strength')">💪 力量</button>
-            <button id="modeCardio" onclick="switchMode('cardio')">🏃 有氧</button>
-        </div>
-        <form id="workoutForm">
-            <div id="strengthFields">
-                <div class="input-group"><label>部位</label>
-                    <select id="strengthPart" onchange="updateStrengthExercises()">
-                        {strength_part_options}
-                    </select>
-                </div>
-                <div class="input-group"><label>动作</label>
-                    <select id="strengthExercise">
-                        {strength_exercise_options}
-                    </select>
-                </div>
-                <div class="input-group"><label>组数</label>
-                    <input type="number" id="setCount" value="3" min="1" onchange="generateGroupInputs()">
-                </div>
-                <div id="groupContainer"></div>
-            </div>
-            <div id="cardioFields" class="hidden">
-                <div class="input-group"><label>动作</label>
-                    <select id="cardioExercise">
-                        {cardio_exercise_options}
-                    </select>
-                </div>
-                <div class="input-group"><label>时长 (分钟)</label><input type="number" id="cardioDuration" value="30" min="1"></div>
-                <div class="input-group"><label>强度 (MET)</label>
-                    <select id="metSelect">
-                        {met_options}
-                    </select>
-                </div>
-                <div class="input-group hidden" id="customMetGroup">
-                    <label>自定义 MET 值</label><input type="number" id="customMet" value="8.0" step="0.1">
-                </div>
-            </div>
-            <button type="button" class="btn" onclick="saveWorkout()">保存记录</button>
-        </form>
-    </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
-    <div class="footer">数据将存储于 Supabase · 安全加密</div>
-    <script>
-        // 生成组输入框
-        function generateGroupInputs() {{
-            const count = parseInt(document.getElementById('setCount').value) || 0;
-            const container = document.getElementById('groupContainer');
-            container.innerHTML = '';
-            for (let i = 0; i < count; i++) {{
-                const div = document.createElement('div');
-                div.className = 'group-item';
-                div.innerHTML = `
-                    <span style="font-weight:500; font-size:14px;">${{i+1}}.</span>
-                    <input type="number" placeholder="次数" class="group-reps" value="10" min="1" style="flex:1;">
-                    <input type="number" placeholder="重量(kg)" class="group-weight" value="20" step="2.5" min="0" style="flex:1;">
-                `;
-                container.appendChild(div);
-            }}
-        }}
-
-        // 更新力量动作列表
-        function updateStrengthExercises() {{
-            const part = document.getElementById('strengthPart').value;
-            const exSelect = document.getElementById('strengthExercise');
-            const exercises = STRENGTH_PARTS[part] || [];
-            exSelect.innerHTML = exercises.map(e => `<option value="${{e}}">${{e}}</option>`).join('');
-        }}
-
-        // 切换模式
-        function switchMode(mode) {{
-            document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
-            document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
-            document.getElementById('strengthFields').classList.toggle('hidden', mode !== 'strength');
-            document.getElementById('cardioFields').classList.toggle('hidden', mode !== 'cardio');
-            if (mode === 'strength') generateGroupInputs();
-        }}
-
-        // MET 自定义切换
-        document.getElementById('metSelect').addEventListener('change', function() {{
-            const customGroup = document.getElementById('customMetGroup');
-            if (this.value === 'custom') {{
-                customGroup.classList.remove('hidden');
-            }} else {{
-                customGroup.classList.add('hidden');
-            }}
-        }});
-
-        // 保存训练记录
-        async function saveWorkout() {{
-            if (!accessToken) {{
-                showToast('请先登录');
-                return;
-            }}
-            const mode = document.getElementById('modeStrength').classList.contains('active') ? 'strength' : 'cardio';
-            let data = {{
-                user_id: userId,
-                date: new Date().toISOString().slice(0,10),
-                body_part: '',
-                exercise: '',
-                set_count: 0,
-                details: '',
-                cardio_duration: null,
-                met_value: null
-            }};
-
-            if (mode === 'strength') {{
-                const part = document.getElementById('strengthPart').value;
-                const exercise = document.getElementById('strengthExercise').value;
-                const repsInputs = document.querySelectorAll('.group-reps');
-                const weightInputs = document.querySelectorAll('.group-weight');
-                let details = [];
-                for (let i = 0; i < repsInputs.length; i++) {{
-                    const reps = parseInt(repsInputs[i].value) || 0;
-                    const weight = parseFloat(weightInputs[i].value) || 0;
-                    if (reps > 0) details.push(`${{reps}}次×${{weight}}kg`);
-                }}
-                if (details.length === 0) {{
-                    showToast('请至少设置一组有效数据');
-                    return;
-                }}
-                data.body_part = part;
-                data.exercise = exercise;
-                data.set_count = details.length;
-                data.details = details.join('; ');
-            }} else {{
-                const exercise = document.getElementById('cardioExercise').value;
-                const duration = parseInt(document.getElementById('cardioDuration').value) || 0;
-                const metSelect = document.getElementById('metSelect');
-                let met = parseFloat(metSelect.value);
-                if (metSelect.value === 'custom') {{
-                    met = parseFloat(document.getElementById('customMet').value);
-                }}
-                if (duration <= 0) {{
-                    showToast('请输入有效时长');
-                    return;
-                }}
-                data.body_part = '有氧';
-                data.exercise = exercise;
-                data.cardio_duration = duration;
-                data.met_value = met;
-            }}
-
-            try {{
-                const resp = await supabaseRequest('POST', '/rest/v1/workouts', data);
-                if (resp.length) {{
-                    showToast('保存成功！');
-                    // 重置表单（可选）
-                    if (mode === 'strength') {{
-                        document.getElementById('setCount').value = 3;
-                        generateGroupInputs();
-                    }}
-                }} else {{
-                    showToast('保存失败，请重试');
-                }}
-            }} catch(e) {{
-                console.error(e);
-                showToast('保存异常，请重试');
-            }}
-        }}
-
-        // 初始化组输入
-        generateGroupInputs();
-        // 初始化动作
-        updateStrengthExercises();
-    </script>
-    """
-
-# ---------- 训练日历（修复加载） ----------
-elif tab == "calendar":
-    html = base_html + f"""
-    <div class="brand"><h1>📅 训练日历</h1><p id="monthYear">2026年7月</p></div>
-    <div class="card" id="calendarContainer">
-        <div class="month-nav">
-            <button id="prevMonth">◀</button>
-            <span id="currentMonth">2026年7月</span>
-            <button id="nextMonth">▶</button>
-        </div>
-        <div id="calendarGrid" class="calendar-grid"></div>
-        <div style="margin-top: 16px; text-align: center;">
-            <span style="font-size:14px; color:#475569;">本月出勤：<span id="attendanceCount">0</span> 天</span>
-        </div>
-    </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
-    <div class="footer">绿色日期表示有训练记录</div>
-    <script>
-        let currentYear = 2026, currentMonth = 6;
-        const monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
-        const weekDays = ['日','一','二','三','四','五','六'];
-
-        async function loadCalendar(year, month) {{
-            if (!accessToken) {{
-                showToast('请先登录');
-                return;
-            }}
-            const start = new Date(year, month, 1).toISOString().slice(0,10);
-            const end = new Date(year, month+1, 0).toISOString().slice(0,10);
-            try {{
-                const resp = await supabaseRequest('GET', `/rest/v1/workouts?user_id=eq.${{userId}}&date=gte.${{start}}&date=lte.${{end}}&select=date`);
-                const trainedDates = new Set(resp.map(w => w.date));
-                renderCalendar(year, month, trainedDates);
-            }} catch(e) {{
-                console.error('加载日历失败:', e);
-                showToast('加载日历失败，请重试');
-            }}
-        }}
-
-        function renderCalendar(year, month, trainedDates) {{
-            const firstDay = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month+1, 0).getDate();
-            const grid = document.getElementById('calendarGrid');
-            let html = weekDays.map(d => `<div class="day-cell weekend">${{d}}</div>`).join('');
-            for (let i = 0; i < firstDay; i++) {{
-                html += '<div class="day-cell empty"></div>';
-            }}
-            let trainedCount = 0;
-            for (let d = 1; d <= daysInMonth; d++) {{
-                const dateStr = new Date(year, month, d).toISOString().slice(0,10);
-                const trained = trainedDates.has(dateStr);
-                if (trained) trainedCount++;
-                html += `<div class="day-cell ${{trained ? 'trained' : ''}}">${{d}}</div>`;
-            }}
-            grid.innerHTML = html;
-            document.getElementById('currentMonth').textContent = year + '年' + monthNames[month];
-            document.getElementById('monthYear').textContent = year + '年' + monthNames[month];
-            document.getElementById('attendanceCount').textContent = trainedCount;
-        }}
-
-        document.getElementById('prevMonth').addEventListener('click', function() {{
-            if (currentMonth === 0) {{ currentMonth = 11; currentYear--; }} else {{ currentMonth--; }}
-            loadCalendar(currentYear, currentMonth);
-        }});
-        document.getElementById('nextMonth').addEventListener('click', function() {{
-            if (currentMonth === 11) {{ currentMonth = 0; currentYear++; }} else {{ currentMonth++; }}
-            loadCalendar(currentYear, currentMonth);
-        }});
-
-        window.refreshData = function() {{
-            loadCalendar(currentYear, currentMonth);
-        }};
-        // 延迟加载等待登录完成
-        setTimeout(() => {{
-            if (accessToken) loadCalendar(currentYear, currentMonth);
-        }}, 1000);
     </script>
     """
 
@@ -745,6 +397,327 @@ elif tab == "settings":
                 loadPushSettings();
             }}
         }}, 500);
+    </script>
+    """
+
+# ---------- 训练日历 ----------
+elif tab == "calendar":
+    html = base_html + f"""
+    <div class="brand"><h1>📅 训练日历</h1><p id="monthYear">2026年7月</p></div>
+    <div class="card" id="calendarContainer">
+        <div class="month-nav">
+            <button id="prevMonth">◀</button>
+            <span id="currentMonth">2026年7月</span>
+            <button id="nextMonth">▶</button>
+        </div>
+        <div id="calendarGrid" class="calendar-grid"></div>
+        <div style="margin-top: 16px; text-align: center;">
+            <span style="font-size:14px; color:#475569;">本月出勤：<span id="attendanceCount">0</span> 天</span>
+        </div>
+    </div>
+    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <div class="footer">绿色日期表示有训练记录</div>
+    <script>
+        let currentYear = 2026, currentMonth = 6;
+        const monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+        const weekDays = ['日','一','二','三','四','五','六'];
+
+        async function loadCalendar(year, month) {{
+            if (!accessToken) {{
+                showToast('请先登录');
+                return;
+            }}
+            const start = new Date(year, month, 1).toISOString().slice(0,10);
+            const end = new Date(year, month+1, 0).toISOString().slice(0,10);
+            try {{
+                const resp = await supabaseRequest('GET', `/rest/v1/workouts?user_id=eq.${{userId}}&date=gte.${{start}}&date=lte.${{end}}&select=date`);
+                const trainedDates = new Set(resp.map(w => w.date));
+                renderCalendar(year, month, trainedDates);
+            }} catch(e) {{
+                console.error('加载日历失败:', e);
+                showToast('加载日历失败，请重试');
+            }}
+        }}
+
+        function renderCalendar(year, month, trainedDates) {{
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month+1, 0).getDate();
+            const grid = document.getElementById('calendarGrid');
+            let html = weekDays.map(d => `<div class="day-cell weekend">${{d}}</div>`).join('');
+            for (let i = 0; i < firstDay; i++) {{
+                html += '<div class="day-cell empty"></div>';
+            }}
+            let trainedCount = 0;
+            for (let d = 1; d <= daysInMonth; d++) {{
+                const dateStr = new Date(year, month, d).toISOString().slice(0,10);
+                const trained = trainedDates.has(dateStr);
+                if (trained) trainedCount++;
+                html += `<div class="day-cell ${{trained ? 'trained' : ''}}">${{d}}</div>`;
+            }}
+            grid.innerHTML = html;
+            document.getElementById('currentMonth').textContent = year + '年' + monthNames[month];
+            document.getElementById('monthYear').textContent = year + '年' + monthNames[month];
+            document.getElementById('attendanceCount').textContent = trainedCount;
+        }}
+
+        document.getElementById('prevMonth').addEventListener('click', function() {{
+            if (currentMonth === 0) {{ currentMonth = 11; currentYear--; }} else {{ currentMonth--; }}
+            loadCalendar(currentYear, currentMonth);
+        }});
+        document.getElementById('nextMonth').addEventListener('click', function() {{
+            if (currentMonth === 11) {{ currentMonth = 0; currentYear++; }} else {{ currentMonth++; }}
+            loadCalendar(currentYear, currentMonth);
+        }});
+
+        window.refreshData = function() {{
+            loadCalendar(currentYear, currentMonth);
+        }};
+        setTimeout(() => {{
+            if (accessToken) loadCalendar(currentYear, currentMonth);
+        }}, 1000);
+    </script>
+    """
+
+# ---------- 训练记录（重构） ----------
+elif tab == "training":
+    html = base_html + f"""
+    <div class="brand"><h1>🏋️ 训练记录</h1><p>记录每一次进步</p></div>
+    <div class="card">
+        <div class="switch-mode">
+            <button id="modeStrength" class="active" onclick="switchMode('strength')">💪 力量</button>
+            <button id="modeCardio" onclick="switchMode('cardio')">🏃 有氧</button>
+        </div>
+        <form id="workoutForm">
+            <!-- 力量模式 -->
+            <div id="strengthFields">
+                <div id="strengthBlocks"></div>
+                <button type="button" class="btn btn-secondary" onclick="addStrengthBlock()">+ 添加部位</button>
+            </div>
+            <!-- 有氧模式 -->
+            <div id="cardioFields" class="hidden">
+                <div class="input-group"><label>动作</label>
+                    <select id="cardioExercise">
+                        {''.join([f'<option value="{e}">{e}</option>' for e in cardio_parts["有氧"]])}
+                    </select>
+                </div>
+                <div class="input-group"><label>时长 (分钟)</label><input type="number" id="cardioDuration" value="30" min="1"></div>
+                <div class="input-group"><label>强度 (MET)</label>
+                    <select id="metSelect">
+                        {''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])}
+                    </select>
+                </div>
+                <div class="input-group hidden" id="customMetGroup">
+                    <label>自定义 MET 值</label><input type="number" id="customMet" value="8.0" step="0.1">
+                </div>
+            </div>
+            <button type="button" class="btn" onclick="saveWorkout()" style="margin-top:12px;">保存记录</button>
+        </form>
+    </div>
+    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <div class="footer">数据将存储于 Supabase · 安全加密</div>
+    <script>
+        // ---------- 力量模式动态块 ----------
+        let blockCount = 0;
+
+        function addStrengthBlock() {{
+            blockCount++;
+            const container = document.getElementById('strengthBlocks');
+            const blockId = 'block_' + blockCount;
+            const partSelect = document.createElement('select');
+            partSelect.id = blockId + '_part';
+            partSelect.className = 'block-part';
+            // 从 STRENGTH_PARTS 生成选项
+            for (let p in STRENGTH_PARTS) {{
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = p;
+                partSelect.appendChild(opt);
+            }}
+            partSelect.onchange = function() {{ updateStrengthExercises(blockId); }};
+
+            const exerciseSelect = document.createElement('select');
+            exerciseSelect.id = blockId + '_exercise';
+            exerciseSelect.className = 'block-exercise';
+
+            const blockDiv = document.createElement('div');
+            blockDiv.className = 'block-container';
+            blockDiv.id = blockId;
+            blockDiv.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-weight:600; font-size:14px;">部位 ${{blockCount}}</span>
+                    <button type="button" class="remove-btn-red" onclick="removeBlock('${{blockId}}')">删除</button>
+                </div>
+                <div class="input-group"><label>部位</label></div>
+                <div class="input-group"><label>动作</label></div>
+                <div class="input-group"><label>组数</label>
+                    <input type="number" class="block-sets" value="3" min="1" onchange="generateGroupInputs('${{blockId}}')">
+                </div>
+                <div id="${{blockId}}_groups"></div>
+                <button type="button" class="add-btn" onclick="addGroup('${{blockId}}')">+ 添加一组</button>
+            `;
+            // 插入部位和动作选择器
+            const partLabel = blockDiv.querySelector('.input-group:first-child');
+            partLabel.appendChild(partSelect);
+            const exLabel = blockDiv.querySelector('.input-group:nth-child(2)');
+            exLabel.appendChild(exerciseSelect);
+            // 初始化动作列表
+            updateStrengthExercises(blockId);
+            // 生成默认组
+            generateGroupInputs(blockId);
+
+            container.appendChild(blockDiv);
+        }}
+
+        function removeBlock(blockId) {{
+            const el = document.getElementById(blockId);
+            if (el) el.remove();
+        }}
+
+        function updateStrengthExercises(blockId) {{
+            const partSelect = document.getElementById(blockId + '_part');
+            const exSelect = document.getElementById(blockId + '_exercise');
+            const part = partSelect.value;
+            const exercises = STRENGTH_PARTS[part] || [];
+            exSelect.innerHTML = exercises.map(e => `<option value="${{e}}">${{e}}</option>`).join('');
+        }}
+
+        function generateGroupInputs(blockId) {{
+            const setsInput = document.querySelector('#' + blockId + ' .block-sets');
+            const count = parseInt(setsInput.value) || 0;
+            const container = document.getElementById(blockId + '_groups');
+            container.innerHTML = '';
+            for (let i = 0; i < count; i++) {{
+                const div = document.createElement('div');
+                div.className = 'group-item';
+                div.innerHTML = `
+                    <span style="font-weight:500; font-size:14px;">${{i+1}}.</span>
+                    <input type="number" placeholder="次数" class="group-reps" value="10" min="1" style="flex:1;">
+                    <input type="number" placeholder="重量(kg)" class="group-weight" value="20" step="2.5" min="0" style="flex:1;">
+                `;
+                container.appendChild(div);
+            }}
+        }}
+
+        function addGroup(blockId) {{
+            const container = document.getElementById(blockId + '_groups');
+            const idx = container.children.length + 1;
+            const div = document.createElement('div');
+            div.className = 'group-item';
+            div.innerHTML = `
+                <span style="font-weight:500; font-size:14px;">${{idx}}.</span>
+                <input type="number" placeholder="次数" class="group-reps" value="10" min="1" style="flex:1;">
+                <input type="number" placeholder="重量(kg)" class="group-weight" value="20" step="2.5" min="0" style="flex:1;">
+                <button type="button" class="remove-btn" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(div);
+        }}
+
+        // ---------- 切换模式 ----------
+        function switchMode(mode) {{
+            document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
+            document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
+            document.getElementById('strengthFields').classList.toggle('hidden', mode !== 'strength');
+            document.getElementById('cardioFields').classList.toggle('hidden', mode !== 'cardio');
+        }}
+
+        // ---------- MET 自定义 ----------
+        document.getElementById('metSelect').addEventListener('change', function() {{
+            const customGroup = document.getElementById('customMetGroup');
+            if (this.value === 'custom') {{
+                customGroup.classList.remove('hidden');
+            }} else {{
+                customGroup.classList.add('hidden');
+            }}
+        }});
+
+        // ---------- 保存训练记录 ----------
+        async function saveWorkout() {{
+            if (!accessToken) {{
+                showToast('请先登录');
+                return;
+            }}
+            const mode = document.getElementById('modeStrength').classList.contains('active') ? 'strength' : 'cardio';
+            let records = [];
+
+            if (mode === 'strength') {{
+                const blocks = document.querySelectorAll('.block-container');
+                if (blocks.length === 0) {{
+                    showToast('请至少添加一个部位');
+                    return;
+                }}
+                for (let block of blocks) {{
+                    const part = block.querySelector('.block-part').value;
+                    const exercise = block.querySelector('.block-exercise').value;
+                    const setsInput = block.querySelector('.block-sets');
+                    const sets = parseInt(setsInput.value) || 0;
+                    const repsInputs = block.querySelectorAll('.group-reps');
+                    const weightInputs = block.querySelectorAll('.group-weight');
+                    let details = [];
+                    for (let i = 0; i < repsInputs.length; i++) {{
+                        const reps = parseInt(repsInputs[i].value) || 0;
+                        const weight = parseFloat(weightInputs[i].value) || 0;
+                        if (reps > 0) details.push(`${{reps}}次×${{weight}}kg`);
+                    }}
+                    if (details.length === 0) continue;
+                    records.push({{
+                        user_id: userId,
+                        date: new Date().toISOString().slice(0,10),
+                        body_part: part,
+                        exercise: exercise,
+                        set_count: details.length,
+                        details: details.join('; '),
+                        cardio_duration: null,
+                        met_value: null
+                    }});
+                }}
+            }} else {{
+                const exercise = document.getElementById('cardioExercise').value;
+                const duration = parseInt(document.getElementById('cardioDuration').value) || 0;
+                const metSelect = document.getElementById('metSelect');
+                let met = parseFloat(metSelect.value);
+                if (metSelect.value === 'custom') {{
+                    met = parseFloat(document.getElementById('customMet').value);
+                }}
+                if (duration <= 0) {{
+                    showToast('请输入有效时长');
+                    return;
+                }}
+                records.push({{
+                    user_id: userId,
+                    date: new Date().toISOString().slice(0,10),
+                    body_part: '有氧',
+                    exercise: exercise,
+                    set_count: 0,
+                    details: '',
+                    cardio_duration: duration,
+                    met_value: met
+                }});
+            }}
+
+            if (records.length === 0) {{
+                showToast('请至少输入一条有效记录');
+                return;
+            }}
+
+            try {{
+                let success = true;
+                for (let rec of records) {{
+                    const resp = await supabaseRequest('POST', '/rest/v1/workouts', rec);
+                    if (!resp.length) success = false;
+                }}
+                if (success) {{
+                    showToast('保存成功！');
+                }} else {{
+                    showToast('部分记录保存失败，请检查');
+                }}
+            }} catch(e) {{
+                console.error(e);
+                showToast('保存异常，请重试');
+            }}
+        }}
+
+        // ---------- 初始化 ----------
+        addStrengthBlock();
     </script>
     """
 
