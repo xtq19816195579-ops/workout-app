@@ -6,22 +6,18 @@ st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
 query_params = st.query_params
 
-# 如果非 webview 模式，直接显示提示（或跳转）
 if query_params.get("webview") != "1":
     st.write("请通过微信小程序访问")
     st.stop()
 
-# 获取参数
 tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
 avatar = query_params.get("avatar", "")
 nickname = query_params.get("nickname", "微信用户")
 
-# 从 Secrets 读取 Supabase 配置
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
 
-# 动作库数据（JavaScript 格式）
 body_parts = {
     "胸部": ["杠铃卧推", "上斜卧推", "哑铃飞鸟", "器械卧推", "夹胸", "俯卧撑"],
     "肩部": ["哑铃推举", "杠铃推举", "侧平举", "前平举", "面拉", "蝴蝶机反向飞鸟"],
@@ -32,18 +28,21 @@ body_parts = {
     "腿部": ["深蹲", "腿举", "腿弯举", "腿屈伸", "箭步蹲", "罗马尼亚硬拉"],
     "全身/其他": ["波比跳", "壶铃摆荡", "战绳", "有氧跑步", "跳绳"]
 }
-cardio_met_options = {
-    "跑步 (8 km/h)": 8.0, "跑步 (10 km/h)": 10.0, "慢跑": 7.0,
-    "跳绳 (中速)": 10.0, "跳绳 (快速)": 12.0, "游泳 (自由泳)": 8.0,
-    "游泳 (蛙泳)": 7.0, "骑行 (中等)": 6.0, "椭圆机": 5.0,
-    "划船机": 7.0, "高强度间歇训练": 12.0, "自定义": None
-}
+cardio_met_options = [
+    ("跑步 (8 km/h)", "8.0"),
+    ("跑步 (10 km/h)", "10.0"),
+    ("慢跑", "7.0"),
+    ("跳绳 (中速)", "10.0"),
+    ("跳绳 (快速)", "12.0"),
+    ("游泳 (自由泳)", "8.0"),
+    ("游泳 (蛙泳)", "7.0"),
+    ("骑行 (中等)", "6.0"),
+    ("椭圆机", "5.0"),
+    ("划船机", "7.0"),
+    ("高强度间歇训练", "12.0"),
+    ("自定义", "custom")
+]
 
-# 生成页面
-def render_page(content):
-    st.markdown(content, unsafe_allow_html=True)
-
-# 通用样式和基础脚本
 base_html = f"""
 <!DOCTYPE html>
 <html>
@@ -148,14 +147,14 @@ base_html = f"""
     .stat-label {{ color: #475569; }}
     .stat-value {{ font-weight: 600; color: #0f172a; }}
     .footer {{ text-align: center; font-size: 12px; color: #94a3b8; margin-top: 24px; }}
-    .avatar-img {{ width: 48px; height: 48px; border-radius: 50%; object-fit: cover; }}
+    .avatar-img {{ width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #e2e8f0; }}
     .user-row {{ display: flex; align-items: center; gap: 12px; }}
     .user-name {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
     .user-status {{ font-size: 12px; color: #94a3b8; }}
-    .toast {{ 
+    .toast {{
         position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
         background: #0f172a; color: white; padding: 10px 20px; border-radius: 12px;
-        font-size: 14px; z-index: 9999; display: none; 
+        font-size: 14px; z-index: 9999; display: none;
     }}
     .switch-mode {{
         display: flex; gap: 12px; margin-bottom: 16px;
@@ -193,16 +192,13 @@ base_html = f"""
 <div id="toast" class="toast"></div>
 
 <script>
-    // Supabase 配置
     const SUPABASE_URL = '{supabase_url}';
     const SUPABASE_ANON_KEY = '{supabase_anon_key}';
     const WECHAT_FIXED_PASSWORD = 'wechat123';
 
-    // 动作库
     const BODY_PARTS = {json.dumps(body_parts)};
     const CARDIO_MET_OPTIONS = {json.dumps(cardio_met_options)};
 
-    // 当前用户信息
     const WECHAT_OPENID = '{wechat_openid}';
     const AVATAR = '{avatar}';
     const NICKNAME = '{nickname}';
@@ -210,7 +206,6 @@ base_html = f"""
     let accessToken = null;
     let userId = null;
 
-    // 通用工具函数
     function showToast(msg, duration = 2000) {{
         const toast = document.getElementById('toast');
         toast.textContent = msg;
@@ -218,7 +213,6 @@ base_html = f"""
         setTimeout(() => {{ toast.style.display = 'none'; }}, duration);
     }}
 
-    // Supabase 自动登录
     async function autoLogin() {{
         if (!WECHAT_OPENID) {{
             showToast('缺少用户标识');
@@ -226,7 +220,6 @@ base_html = f"""
         }}
         const email = WECHAT_OPENID + '@wechat.com';
         try {{
-            // 尝试登录
             let resp = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
@@ -236,7 +229,7 @@ base_html = f"""
             if (data.access_token) {{
                 accessToken = data.access_token;
                 userId = data.user.id;
-                // 如果有头像和昵称，更新profile
+                // 更新 profile 中的头像和昵称（如果有）
                 if (AVATAR && NICKNAME) {{
                     await fetch(SUPABASE_URL + '/rest/v1/profiles', {{
                         method: 'PATCH',
@@ -251,7 +244,6 @@ base_html = f"""
                 }}
                 return true;
             }} else {{
-                // 尝试注册
                 resp = await fetch(SUPABASE_URL + '/auth/v1/signup', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
@@ -261,7 +253,6 @@ base_html = f"""
                 if (data.access_token) {{
                     accessToken = data.access_token;
                     userId = data.user.id;
-                    // 创建profile
                     await fetch(SUPABASE_URL + '/rest/v1/profiles', {{
                         method: 'POST',
                         headers: {{
@@ -283,7 +274,6 @@ base_html = f"""
         return false;
     }}
 
-    // 调用 Supabase API 的封装
     async function supabaseRequest(method, path, body = null) {{
         const url = SUPABASE_URL + path;
         const headers = {{
@@ -291,34 +281,31 @@ base_html = f"""
             'apikey': SUPABASE_ANON_KEY,
             'Authorization': 'Bearer ' + accessToken
         }};
-        if (method === 'GET') {{
-            const resp = await fetch(url, {{ method, headers }});
-            return resp.json();
-        }} else {{
-            const resp = await fetch(url, {{ method, headers, body: JSON.stringify(body) }});
-            return resp.json();
-        }}
+        const options = {{ method, headers }};
+        if (body) options.body = JSON.stringify(body);
+        const resp = await fetch(url, options);
+        return resp.json();
     }}
 
-    // 初始化：显示用户头像和昵称
     function initUser() {{
         const avatarEl = document.getElementById('userAvatar');
         const nameEl = document.getElementById('userName');
-        if (avatarEl && AVATAR) avatarEl.src = AVATAR;
-        if (nameEl && NICKNAME) nameEl.textContent = NICKNAME;
+        if (avatarEl) {{
+            if (AVATAR) avatarEl.src = AVATAR;
+            else avatarEl.src = '';
+        }}
+        if (nameEl) {{
+            nameEl.textContent = NICKNAME || '微信用户';
+        }}
     }}
 
-    // 页面加载后执行
     window.onload = async function() {{
-        // 显示头像昵称
         initUser();
-        // 如果未登录，尝试自动登录
         if (!accessToken) {{
             const ok = await autoLogin();
             if (!ok) {{
                 showToast('登录失败，部分功能不可用');
             }} else {{
-                // 刷新页面数据
                 if (window.refreshData) window.refreshData();
             }}
         }} else {{
@@ -328,7 +315,9 @@ base_html = f"""
 </script>
 """
 
-# ---------- 构建各个页面 ----------
+def render_page(html):
+    st.markdown(html, unsafe_allow_html=True)
+
 if tab == "home":
     html = base_html + f"""
     <div class="brand"><h1>🦋 茧记</h1><p>记录 · 蜕变</p></div>
@@ -390,7 +379,14 @@ if tab == "home":
     """
 
 elif tab == "training":
-    # 训练记录页面
+    # 生成部位选项
+    part_options = ''.join([f'<option value="{p}">{p}</option>' for p in body_parts.keys()])
+    # 生成MET选项（处理自定义）
+    met_options = ''.join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
+    # 生成动作选项（默认胸部）
+    default_exercises = body_parts["胸部"]
+    exercise_options = ''.join([f'<option value="{e}">{e}</option>' for e in default_exercises])
+
     html = base_html + f"""
     <div class="brand"><h1>🏋️ 训练记录</h1><p>记录每一次进步</p></div>
     <div class="card">
@@ -401,12 +397,12 @@ elif tab == "training":
         <form id="workoutForm">
             <div class="input-group"><label>部位</label>
                 <select id="bodyPart" onchange="updateExercises()">
-                    {''.join([f'<option value="{part}">{part}</option>' for part in body_parts.keys()])}
+                    {part_options}
                 </select>
             </div>
             <div class="input-group"><label>动作</label>
                 <select id="exercise">
-                    {''.join([f'<option value="{ex}">{ex}</option>' for ex in body_parts["胸部"]])}
+                    {exercise_options}
                 </select>
             </div>
             <div id="strengthFields">
@@ -418,7 +414,7 @@ elif tab == "training":
                 <div class="input-group"><label>时长 (分钟)</label><input type="number" id="cardioDuration" value="30" min="1"></div>
                 <div class="input-group"><label>强度 (MET)</label>
                     <select id="metSelect">
-                        {''.join([f'<option value="{v if v is not none else ""}">{k}</option>' for k, v in cardio_met_options.items()])}
+                        {met_options}
                     </select>
                 </div>
                 <div class="input-group hidden" id="customMetGroup">
@@ -431,30 +427,26 @@ elif tab == "training":
     <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据将存储于 Supabase · 安全加密</div>
     <script>
-        // 动作更新
         function updateExercises() {{
             const part = document.getElementById('bodyPart').value;
             const exSelect = document.getElementById('exercise');
             const exercises = BODY_PARTS[part] || [];
             exSelect.innerHTML = exercises.map(e => `<option value="${{e}}">${{e}}</option>`).join('');
         }}
-        // 模式切换
         function switchMode(mode) {{
             document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
             document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
             document.getElementById('strengthFields').classList.toggle('hidden', mode !== 'strength');
             document.getElementById('cardioFields').classList.toggle('hidden', mode !== 'cardio');
         }}
-        // MET 选择变化
         document.getElementById('metSelect').addEventListener('change', function() {{
             const customGroup = document.getElementById('customMetGroup');
-            if (this.value === '') {{
+            if (this.value === 'custom') {{
                 customGroup.classList.remove('hidden');
             }} else {{
                 customGroup.classList.add('hidden');
             }}
         }});
-        // 保存训练记录
         async function saveWorkout() {{
             if (!accessToken) {{
                 showToast('请先登录');
@@ -483,7 +475,7 @@ elif tab == "training":
                 const duration = parseInt(document.getElementById('cardioDuration').value);
                 const metSelect = document.getElementById('metSelect');
                 let met = parseFloat(metSelect.value);
-                if (metSelect.value === '') {{
+                if (metSelect.value === 'custom') {{
                     met = parseFloat(document.getElementById('customMet').value);
                 }}
                 data.cardio_duration = duration;
@@ -493,14 +485,6 @@ elif tab == "training":
                 const resp = await supabaseRequest('POST', '/rest/v1/workouts', data);
                 if (resp.length) {{
                     showToast('保存成功！');
-                    // 清空表单（可选）
-                    if (mode === 'strength') {{
-                        document.getElementById('setCount').value = 3;
-                        document.getElementById('reps').value = 10;
-                        document.getElementById('weight').value = 20;
-                    }} else {{
-                        document.getElementById('cardioDuration').value = 30;
-                    }}
                 }} else {{
                     showToast('保存失败，请重试');
                 }}
@@ -509,13 +493,12 @@ elif tab == "training":
                 showToast('保存异常，请重试');
             }}
         }}
-        // 初始化动作列表
+        // 初始化动作
         updateExercises();
     </script>
     """
 
 elif tab == "calendar":
-    # 日历页面
     html = base_html + f"""
     <div class="brand"><h1>📅 训练日历</h1><p id="monthYear">2026年7月</p></div>
     <div class="card" id="calendarContainer">
@@ -529,7 +512,7 @@ elif tab == "calendar":
     <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
     <div class="footer">绿色日期表示有训练记录</div>
     <script>
-        let currentYear = 2026, currentMonth = 6; // 7月（0索引）
+        let currentYear = 2026, currentMonth = 6;
         const monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
         const weekDays = ['日','一','二','三','四','五','六'];
 
@@ -538,7 +521,6 @@ elif tab == "calendar":
                 showToast('请先登录');
                 return;
             }}
-            // 获取该月所有训练日期
             const start = new Date(year, month, 1).toISOString().slice(0,10);
             const end = new Date(year, month+1, 0).toISOString().slice(0,10);
             try {{
@@ -581,7 +563,6 @@ elif tab == "calendar":
         window.refreshData = function() {{
             loadCalendar(currentYear, currentMonth);
         }};
-        // 初始加载
         setTimeout(() => {{
             if (accessToken) loadCalendar(currentYear, currentMonth);
         }}, 500);
@@ -589,7 +570,6 @@ elif tab == "calendar":
     """
 
 elif tab == "settings":
-    # 个人设置
     html = base_html + f"""
     <div class="brand"><h1>⚙️ 个人设置</h1><p>管理您的身体数据</p></div>
     <div class="card">
@@ -648,7 +628,6 @@ elif tab == "settings":
             const token = document.getElementById('pushToken').value.trim();
             const enabled = document.getElementById('pushEnabled').checked;
             try {{
-                // 使用 upsert
                 await supabaseRequest('POST', '/rest/v1/user_push_settings', {{
                     user_id: userId,
                     pushplus_token: token,
@@ -674,7 +653,6 @@ elif tab == "settings":
     """
 
 elif tab == "report":
-    # 今日战报
     html = base_html + f"""
     <div class="brand"><h1>📊 今日战报</h1><p id="reportDate">{datetime.now().strftime("%Y年%m月%d日")}</p></div>
     <div class="card" id="reportContent">
@@ -690,18 +668,14 @@ elif tab == "report":
             }}
             const today = new Date().toISOString().slice(0,10);
             try {{
-                // 获取今日训练记录
                 const workouts = await supabaseRequest('GET', '/rest/v1/workouts?user_id=eq.' + userId + '&date=eq.' + today);
-                // 获取今日总时长（training_durations）
                 const durations = await supabaseRequest('GET', '/rest/v1/training_durations?user_id=eq.' + userId + '&date=eq.' + today);
                 let totalDuration = 0;
                 durations.forEach(d => totalDuration += d.duration_min || 0);
-                // 获取体重
                 const profileResp = await supabaseRequest('GET', '/rest/v1/profiles?user_id=eq.' + userId);
                 let weight = 70;
                 if (profileResp.length) weight = profileResp[0].weight || 70;
 
-                // 计算消耗（简化：力量按每组2分钟MET=5估算）
                 let totalCal = 0;
                 let parts = new Set(), actions = new Set();
                 let detailHtml = '';
@@ -709,15 +683,12 @@ elif tab == "report":
                     parts.add(w.body_part);
                     actions.add(w.exercise);
                     if (w.met_value) {{
-                        // 有氧
                         const cal = w.met_value * weight * (w.cardio_duration / 60);
                         totalCal += cal;
                         detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{w.cardio_duration}}分钟，MET=${{w.met_value}}，消耗 ~${{Math.round(cal)}}千卡</div>`;
                     }} else {{
-                        // 力量
                         const sets = w.set_count || 0;
                         const details = w.details || '';
-                        // 估算消耗：每组2分钟，MET=5
                         const cal = 5 * weight * (sets * 2 / 60);
                         totalCal += cal;
                         detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{sets}}组，${{details}}，估算 ~${{Math.round(cal)}}千卡</div>`;
