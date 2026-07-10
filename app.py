@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from datetime import datetime
 import json
 import urllib.parse
@@ -17,11 +16,11 @@ wechat_openid = query_params.get("wechat_openid", "")
 avatar = query_params.get("avatar", "")
 nickname = query_params.get("nickname", "微信用户")
 
-# URL 安全编码
+# URL 安全编码，防止路由跳转时参数断裂
 safe_avatar = urllib.parse.quote(avatar)
 safe_nickname = urllib.parse.quote(nickname)
 
-# JS 安全注入变量（强制保证输出合法的中文字符 JSON）
+# JS 安全注入变量（强制 JSON 序列化，防止特殊符号搞崩前端）
 safe_openid_js = json.dumps(wechat_openid, ensure_ascii=False)
 safe_avatar_js = json.dumps(avatar, ensure_ascii=False)
 safe_nickname_js = json.dumps(nickname, ensure_ascii=False)
@@ -49,10 +48,8 @@ cardio_met_options = [
     ("划船机", "7.0"), ("高强度间歇训练", "12.0"), ("自定义", "custom")
 ]
 
-# 预先渲染 HTML 片段，防止 Python f-string 解析嵌套错误
 cardio_exercise_opts = "".join([f'<option value="{e}">{e}</option>' for e in cardio_parts["有氧"]])
 met_opts = "".join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
-
 strength_parts_json = json.dumps(strength_parts, ensure_ascii=False)
 
 # ---------- 基础 HTML ----------
@@ -98,7 +95,6 @@ base_html = f"""
     .user-row {{ display: flex; align-items: center; gap: 12px; }}
     .user-name {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
     .user-status {{ font-size: 12px; color: #94a3b8; }}
-    /* 强化的 Toast 提示，强制居中且拥有最高层级 */
     .toast {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; font-size: 16px; z-index: 999999; display: none; text-align: center; white-space: nowrap; }}
     .switch-mode {{ display: flex; gap: 12px; margin-bottom: 16px; }}
     .switch-mode button {{ flex: 1; padding: 10px; border: 2px solid #e2e8f0; background: white; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; }}
@@ -124,23 +120,17 @@ base_html = f"""
 <div id="toast" class="toast"></div>
 
 <script>
-    // 全局错误捕获机制
+    // 基础报错捕获
     window.onerror = function(msg, url, line) {{
         const b = document.getElementById('errorBanner');
         b.style.display = 'block';
-        b.innerText = 'JS报错: ' + msg + ' (行 ' + line + ')';
-    }};
-    window.onunhandledrejection = function(e) {{
-        const b = document.getElementById('errorBanner');
-        b.style.display = 'block';
-        b.innerText = '异步错误: ' + (e.reason ? e.reason.message || e.reason : '未知');
+        b.innerText = 'JS报错: ' + msg;
     }};
 
     const SUPABASE_URL = '{supabase_url}';
     const SUPABASE_ANON_KEY = '{supabase_anon_key}';
     const WECHAT_FIXED_PASSWORD = 'wechat123';
     
-    // 安全注入的变量
     const STRENGTH_PARTS = {strength_parts_json};
     const WECHAT_OPENID = {safe_openid_js};
     const AVATAR = {safe_avatar_js};
@@ -158,7 +148,7 @@ base_html = f"""
 
     async function autoLogin() {{
         if (!WECHAT_OPENID) {{
-            showToast('未检测到用户身份参数，请确认小程序链接是否丢失了参数');
+            showToast('参数丢失，请检查小程序配置');
             return false;
         }}
         const email = WECHAT_OPENID + '@wechat.com';
@@ -173,8 +163,6 @@ base_html = f"""
             if (data.access_token) {{
                 accessToken = data.access_token;
                 userId = data.user.id;
-                
-                // 如果携带了最新头像和昵称，则更新资料表
                 if (AVATAR && NICKNAME) {{
                     await fetch(SUPABASE_URL + '/rest/v1/profiles?user_id=eq.' + userId, {{
                         method: 'PATCH',
@@ -189,7 +177,6 @@ base_html = f"""
                 }}
                 return true;
             }} else {{
-                // 可能是首次使用，进行注册
                 resp = await fetch(SUPABASE_URL + '/auth/v1/signup', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
@@ -210,15 +197,13 @@ base_html = f"""
                         body: JSON.stringify({{ user_id: userId, weight: 70, height: 175, avatar_url: AVATAR, nickname: NICKNAME }})
                     }});
                     return true;
-                }} else {{
-                    throw new Error("鉴权拒绝: " + (data.error_description || "未知错误"));
                 }}
             }}
         }} catch (e) {{
-            console.error('登录异常:', e);
-            showToast('自动登录失败: ' + e.message);
+            showToast('自动登录失败，请检查网络');
             return false;
         }}
+        return false;
     }}
 
     async function supabaseRequest(method, path, body = null) {{
@@ -241,7 +226,7 @@ base_html = f"""
         if (nameEl && NICKNAME) nameEl.textContent = NICKNAME;
     }}
 
-    // 全局启动函数
+    // 将全局函数暴露，供 Python st.html 的底部调用
     window.runApp = async function() {{
         initUser();
         if (!accessToken) {{
@@ -254,21 +239,21 @@ base_html = f"""
 </script>
 """
 
-# 使用更稳定的组件渲染引擎，赋予固定的视口高度防止裁切
+# 【核心修复】：换回原生 st.html() 避免微信拦截 iframe
+# 同时加入 setTimeout 短延迟，确保 Streamlit 将 HTML 注入到浏览器后，再执行逻辑
 def render(html_content):
     final_html = html_content + """
     <script>
-        // 确保 DOM 稳定后再执行
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', window.runApp);
-        } else {
-            window.runApp();
-        }
+        setTimeout(function() {
+            if (typeof window.runApp === 'function') {
+                window.runApp();
+            }
+        }, 150); 
     </script>
     </body></html>
     """
-    # 【改动】使用 components.v1.html 替代 st.html，跨端兼容性更好
-    components.html(final_html, height=1000, scrolling=True)
+    st.html(final_html)
+
 
 # ---------- 首页 ----------
 if tab == "home":
@@ -328,7 +313,6 @@ if tab == "home":
                     list.textContent = '今天还没有训练记录，开始吧 💪';
                 }}
             }} catch(e) {{
-                console.error("加载记录报错：", e);
                 document.getElementById('todayCount').textContent = '加载失败';
                 document.getElementById('todayList').textContent = '数据获取失败';
             }}
@@ -482,7 +466,7 @@ elif tab == "training":
     <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <script>
         let blockCount = 0;
-        function addStrengthBlock() {{
+        window.addStrengthBlock = function() {{
             blockCount++;
             const container = document.getElementById('strengthBlocks');
             const blockId = 'block_' + blockCount;
@@ -507,7 +491,7 @@ elif tab == "training":
             container.appendChild(blockDiv);
             updateEx(blockId);
             genGroups(blockId);
-        }}
+        }};
 
         window.updateEx = function(blockId) {{
             const part = document.querySelector('#' + blockId + ' .block-part').value;
