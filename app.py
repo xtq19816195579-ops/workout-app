@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 from datetime import datetime
 import json
@@ -17,9 +16,14 @@ wechat_openid = query_params.get("wechat_openid", "")
 avatar = query_params.get("avatar", "")
 nickname = query_params.get("nickname", "微信用户")
 
-# 对 URL 参数进行安全编码，防止在 HTML 的 href 标签中导致路径破损
+# 1. 针对 URL 传参（a 标签跳转）进行安全编码
 safe_avatar = urllib.parse.quote(avatar)
 safe_nickname = urllib.parse.quote(nickname)
+
+# 2. 【关键修复】针对 JavaScript 变量注入进行 JSON 序列化，防止特殊字符导致 JS 语法崩溃
+safe_openid_js = json.dumps(wechat_openid)
+safe_avatar_js = json.dumps(avatar)
+safe_nickname_js = json.dumps(nickname)
 
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
@@ -143,9 +147,11 @@ base_html = f"""
     const STRENGTH_PARTS = {strength_parts_json};
     const CARDIO_PARTS = {cardio_parts_json};
     const CARDIO_MET_OPTIONS = {cardio_met_json};
-    const WECHAT_OPENID = '{wechat_openid}';
-    const AVATAR = '{avatar}';
-    const NICKNAME = '{nickname}';
+    
+    // 注入安全的 JS 变量，无需额外加引号，因为 json.dumps 已经带了引号
+    const WECHAT_OPENID = {safe_openid_js};
+    const AVATAR = {safe_avatar_js};
+    const NICKNAME = {safe_nickname_js};
 
     let accessToken = null;
     let userId = null;
@@ -173,8 +179,9 @@ base_html = f"""
             if (data.access_token) {{
                 accessToken = data.access_token;
                 userId = data.user.id;
+                // 更新老用户资料，需带上 userId 防止跨行更新失败
                 if (AVATAR && NICKNAME) {{
-                    await fetch(SUPABASE_URL + '/rest/v1/profiles', {{
+                    await fetch(SUPABASE_URL + '/rest/v1/profiles?user_id=eq.' + userId, {{
                         method: 'PATCH',
                         headers: {{
                             'Content-Type': 'application/json',
@@ -187,6 +194,7 @@ base_html = f"""
                 }}
                 return true;
             }} else {{
+                // 注册新用户
                 resp = await fetch(SUPABASE_URL + '/auth/v1/signup', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
@@ -233,34 +241,35 @@ base_html = f"""
     function initUser() {{
         const avatarEl = document.getElementById('userAvatar');
         const nameEl = document.getElementById('userName');
-        if (avatarEl) {{
-            if (AVATAR) avatarEl.src = AVATAR;
-            else avatarEl.src = '';
+        if (avatarEl && AVATAR) {{
+            avatarEl.src = AVATAR;
         }}
         if (nameEl) {{
             nameEl.textContent = NICKNAME || '微信用户';
         }}
     }}
 
-    // 【关键修复】: 废弃 window.onload, 改用立即执行函数 IIFE，解决 Streamlit 无法触发 onload 事件的白屏卡死问题
-    (async function initApp() {{
-        initUser();
+    // 暴露为全局函数，但不立即执行！等待底部触发。
+    window.runApp = async function() {{
+        initUser(); // 此时 HTML DOM 已经完全加载完毕，必定能找到元素
         if (!accessToken) {{
             const ok = await autoLogin();
             if (!ok) {{
-                showToast('登录失败，部分功能不可用');
+                showToast('登录连接失败');
             }} else {{
-                if (window.refreshData) window.refreshData();
+                if (window.refreshData) window.refreshData(); // 执行页面的拉取数据逻辑
             }}
         }} else {{
             if (window.refreshData) window.refreshData();
         }}
-    }})();
+    }};
 </script>
 """
 
-def render(html):
-    st.html(html)
+def render(html_content):
+    # 【关键机制】：在所有 HTML 片段组装完毕的最末尾，添加触发器，确保 DOM 已经就绪
+    final_html = html_content + "<script>window.runApp();</script></body></html>"
+    st.html(final_html)
 
 # ---------- 首页 ----------
 if tab == "home":
@@ -299,14 +308,20 @@ if tab == "home":
     </div>
     <div class="footer">数据安全加密 · Supabase 动力</div>
     <script>
+        // 定义专属此页面的拉取逻辑，将在 runApp() 中被回调
         window.refreshData = async function() {{
             if (!accessToken) return;
             try {{
                 const today = new Date().toISOString().slice(0,10);
                 const resp = await supabaseRequest('GET', '/rest/v1/workouts?user_id=eq.' + userId + '&date=eq.' + today);
+                
+                // 处理网络错误
+                if (resp.error) throw new Error(resp.error.message);
+                
                 const count = resp.length;
                 document.getElementById('todayCount').textContent = count + ' 项';
                 const list = document.getElementById('todayList');
+                
                 if (count > 0) {{
                     let html = '';
                     resp.forEach(w => {{
@@ -317,7 +332,9 @@ if tab == "home":
                     list.textContent = '今天还没有训练记录，开始吧 💪';
                 }}
             }} catch(e) {{
-                console.error(e);
+                console.error("数据加载报错：", e);
+                document.getElementById('todayCount').textContent = '加载失败';
+                document.getElementById('todayList').textContent = '无法获取数据，请检查网络';
             }}
         }};
     </script>
@@ -512,7 +529,6 @@ elif tab == "training":
     <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据将存储于 Supabase · 安全加密</div>
     <script>
-        // ---------- 力量模式动态块 ----------
         let blockCount = 0;
 
         function addStrengthBlock() {{
@@ -687,7 +703,7 @@ elif tab == "training":
                 let success = true;
                 for (let rec of records) {{
                     const resp = await supabaseRequest('POST', '/rest/v1/workouts', rec);
-                    if (!resp.length) success = false;
+                    if (!resp.length && resp.error) success = false;
                 }}
                 if (success) {{
                     showToast('保存成功！');
@@ -700,8 +716,10 @@ elif tab == "training":
             }}
         }}
 
-        // 初始化
-        addStrengthBlock();
+        // 初始化页面的特定功能，挂载到 refreshData 是因为需要在全局最后执行
+        window.refreshData = function() {{
+            addStrengthBlock();
+        }};
     </script>
     """
 
@@ -715,7 +733,7 @@ elif tab == "report":
     <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据基于您的训练记录生成</div>
     <script>
-        async function loadReport() {{
+        window.refreshData = async function() {{
             if (!accessToken) {{
                 document.getElementById('reportContent').innerHTML = '<div style="text-align:center;padding:20px;">请先登录</div>';
                 return;
@@ -725,29 +743,33 @@ elif tab == "report":
                 const workouts = await supabaseRequest('GET', '/rest/v1/workouts?user_id=eq.' + userId + '&date=eq.' + today);
                 const durations = await supabaseRequest('GET', '/rest/v1/training_durations?user_id=eq.' + userId + '&date=eq.' + today);
                 let totalDuration = 0;
-                durations.forEach(d => totalDuration += d.duration_min || 0);
+                if(durations && !durations.error) {{
+                   durations.forEach(d => totalDuration += d.duration_min || 0);
+                }}
                 const profileResp = await supabaseRequest('GET', '/rest/v1/profiles?user_id=eq.' + userId);
                 let weight = 70;
-                if (profileResp.length) weight = profileResp[0].weight || 70;
+                if (profileResp && !profileResp.error && profileResp.length) weight = profileResp[0].weight || 70;
 
                 let totalCal = 0;
                 let parts = new Set(), actions = new Set();
                 let detailHtml = '';
-                workouts.forEach(w => {{
-                    parts.add(w.body_part);
-                    actions.add(w.exercise);
-                    if (w.met_value) {{
-                        const cal = w.met_value * weight * (w.cardio_duration / 60);
-                        totalCal += cal;
-                        detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{w.cardio_duration}}分钟，MET=${{w.met_value}}，消耗 ~${{Math.round(cal)}}千卡</div>`;
-                    }} else {{
-                        const sets = w.set_count || 0;
-                        const details = w.details || '';
-                        const cal = 5 * weight * (sets * 2 / 60);
-                        totalCal += cal;
-                        detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{sets}}组，${{details}}，估算 ~${{Math.round(cal)}}千卡</div>`;
-                    }}
-                }});
+                if(workouts && !workouts.error) {{
+                    workouts.forEach(w => {{
+                        parts.add(w.body_part);
+                        actions.add(w.exercise);
+                        if (w.met_value) {{
+                            const cal = w.met_value * weight * (w.cardio_duration / 60);
+                            totalCal += cal;
+                            detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{w.cardio_duration}}分钟，MET=${{w.met_value}}，消耗 ~${{Math.round(cal)}}千卡</div>`;
+                        }} else {{
+                            const sets = w.set_count || 0;
+                            const details = w.details || '';
+                            const cal = 5 * weight * (sets * 2 / 60);
+                            totalCal += cal;
+                            detailHtml += `<div>• ${{w.body_part}} ${{w.exercise}}：${{sets}}组，${{details}}，估算 ~${{Math.round(cal)}}千卡</div>`;
+                        }}
+                    }});
+                }}
 
                 const partsStr = Array.from(parts).join('、') || '无';
                 const actionsStr = Array.from(actions).join('、') || '无';
@@ -765,8 +787,7 @@ elif tab == "report":
                 console.error(e);
                 document.getElementById('reportContent').innerHTML = '<div style="text-align:center;padding:20px;">加载失败，请重试</div>';
             }}
-        }}
-        window.refreshData = loadReport;
+        }};
     </script>
     """
 
