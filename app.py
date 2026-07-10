@@ -9,8 +9,26 @@ import time
 # -------------------- 初始化与配置 --------------------
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
+# ==================== WebView 兼容性配置（新增） ====================
+# 此段代码强制 Streamlit 在 WebView 中启用更兼容的渲染模式
+st.markdown("""
+<script>
+    // 强制启用调试模式
+    window.streamlitDebug = true;
+    // 允许跨域
+    window.streamlitConfig = {
+        server: {
+            enableCORS: true,
+            enableXsrfProtection: false
+        }
+    };
+    // 告知 WebView 环境
+    window.__isWebView = true;
+    console.log('✅ WebView 兼容性脚本已执行');
+</script>
+""", unsafe_allow_html=True)
+
 # ==================== 测试模式：如果 URL 参数包含 test=1，则输出纯文本并退出 ====================
-# 此代码必须在任何其他业务逻辑之前执行，以确保 WebView 能加载
 query_params = st.query_params
 if query_params.get("test") == "1":
     st.markdown("""
@@ -21,7 +39,7 @@ if query_params.get("test") == "1":
         <p>当前时间：""" + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
     </div>
     """, unsafe_allow_html=True)
-    st.stop()  # 停止执行后续代码
+    st.stop()
 
 # ==================== 清爽高级风格 CSS ====================
 st.markdown("""
