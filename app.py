@@ -1,6 +1,8 @@
+# app.py
 import streamlit as st
 from datetime import datetime
 import json
+import urllib.parse
 
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
 
@@ -14,6 +16,10 @@ tab = query_params.get("tab", "home")
 wechat_openid = query_params.get("wechat_openid", "")
 avatar = query_params.get("avatar", "")
 nickname = query_params.get("nickname", "微信用户")
+
+# 对 URL 参数进行安全编码，防止在 HTML 的 href 标签中导致路径破损
+safe_avatar = urllib.parse.quote(avatar)
+safe_nickname = urllib.parse.quote(nickname)
 
 supabase_url = st.secrets["SUPABASE_URL"]
 supabase_anon_key = st.secrets["SUPABASE_ANON_KEY"]
@@ -236,7 +242,8 @@ base_html = f"""
         }}
     }}
 
-    window.onload = async function() {{
+    // 【关键修复】: 废弃 window.onload, 改用立即执行函数 IIFE，解决 Streamlit 无法触发 onload 事件的白屏卡死问题
+    (async function initApp() {{
         initUser();
         if (!accessToken) {{
             const ok = await autoLogin();
@@ -248,7 +255,7 @@ base_html = f"""
         }} else {{
             if (window.refreshData) window.refreshData();
         }}
-    }};
+    }})();
 </script>
 """
 
@@ -270,16 +277,16 @@ if tab == "home":
         </div>
     </div>
     <div class="menu-grid">
-        <a href="?webview=1&tab=settings&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+        <a href="?webview=1&tab=settings&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="menu-item">
             <span class="icon">⚙️</span><span class="label">个人设置</span>
         </a>
-        <a href="?webview=1&tab=calendar&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+        <a href="?webview=1&tab=calendar&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="menu-item">
             <span class="icon">📅</span><span class="label">训练日历</span>
         </a>
-        <a href="?webview=1&tab=training&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+        <a href="?webview=1&tab=training&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="menu-item">
             <span class="icon">🏋️</span><span class="label">训练记录</span>
         </a>
-        <a href="?webview=1&tab=report&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="menu-item">
+        <a href="?webview=1&tab=report&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="menu-item">
             <span class="icon">📊</span><span class="label">今日战报</span>
         </a>
     </div>
@@ -335,7 +342,7 @@ elif tab == "settings":
         </label>
         <button type="button" class="btn" onclick="savePushSettings()">保存推送设置</button>
     </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据安全加密</div>
     <script>
         async function loadProfile() {{
@@ -391,12 +398,6 @@ elif tab == "settings":
             loadProfile();
             loadPushSettings();
         }};
-        setTimeout(() => {{
-            if (accessToken) {{
-                loadProfile();
-                loadPushSettings();
-            }}
-        }}, 500);
     </script>
     """
 
@@ -415,7 +416,7 @@ elif tab == "calendar":
             <span style="font-size:14px; color:#475569;">本月出勤：<span id="attendanceCount">0</span> 天</span>
         </div>
     </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">绿色日期表示有训练记录</div>
     <script>
         let currentYear = 2026, currentMonth = 6;
@@ -472,9 +473,6 @@ elif tab == "calendar":
         window.refreshData = function() {{
             loadCalendar(currentYear, currentMonth);
         }};
-        setTimeout(() => {{
-            if (accessToken) loadCalendar(currentYear, currentMonth);
-        }}, 1000);
     </script>
     """
 
@@ -488,12 +486,10 @@ elif tab == "training":
             <button id="modeCardio" onclick="switchMode('cardio')">🏃 有氧</button>
         </div>
         <form id="workoutForm">
-            <!-- 力量模式 -->
             <div id="strengthFields">
                 <div id="strengthBlocks"></div>
                 <button type="button" class="btn btn-secondary" onclick="addStrengthBlock()">+ 添加部位</button>
             </div>
-            <!-- 有氧模式 -->
             <div id="cardioFields" class="hidden">
                 <div class="input-group"><label>动作</label>
                     <select id="cardioExercise">
@@ -513,7 +509,7 @@ elif tab == "training":
             <button type="button" class="btn" onclick="saveWorkout()" style="margin-top:12px;">保存记录</button>
         </form>
     </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据将存储于 Supabase · 安全加密</div>
     <script>
         // ---------- 力量模式动态块 ----------
@@ -526,7 +522,6 @@ elif tab == "training":
             const partSelect = document.createElement('select');
             partSelect.id = blockId + '_part';
             partSelect.className = 'block-part';
-            // 从 STRENGTH_PARTS 生成选项
             for (let p in STRENGTH_PARTS) {{
                 const opt = document.createElement('option');
                 opt.value = p;
@@ -555,16 +550,12 @@ elif tab == "training":
                 <div id="${{blockId}}_groups"></div>
                 <button type="button" class="add-btn" onclick="addGroup('${{blockId}}')">+ 添加一组</button>
             `;
-            // 插入部位和动作选择器
             const partLabel = blockDiv.querySelector('.input-group:first-child');
             partLabel.appendChild(partSelect);
             const exLabel = blockDiv.querySelector('.input-group:nth-child(2)');
             exLabel.appendChild(exerciseSelect);
-            // 初始化动作列表
             updateStrengthExercises(blockId);
-            // 生成默认组
             generateGroupInputs(blockId);
-
             container.appendChild(blockDiv);
         }}
 
@@ -612,7 +603,6 @@ elif tab == "training":
             container.appendChild(div);
         }}
 
-        // ---------- 切换模式 ----------
         function switchMode(mode) {{
             document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
             document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
@@ -620,7 +610,6 @@ elif tab == "training":
             document.getElementById('cardioFields').classList.toggle('hidden', mode !== 'cardio');
         }}
 
-        // ---------- MET 自定义 ----------
         document.getElementById('metSelect').addEventListener('change', function() {{
             const customGroup = document.getElementById('customMetGroup');
             if (this.value === 'custom') {{
@@ -630,7 +619,6 @@ elif tab == "training":
             }}
         }});
 
-        // ---------- 保存训练记录 ----------
         async function saveWorkout() {{
             if (!accessToken) {{
                 showToast('请先登录');
@@ -648,8 +636,6 @@ elif tab == "training":
                 for (let block of blocks) {{
                     const part = block.querySelector('.block-part').value;
                     const exercise = block.querySelector('.block-exercise').value;
-                    const setsInput = block.querySelector('.block-sets');
-                    const sets = parseInt(setsInput.value) || 0;
                     const repsInputs = block.querySelectorAll('.group-reps');
                     const weightInputs = block.querySelectorAll('.group-weight');
                     let details = [];
@@ -675,9 +661,7 @@ elif tab == "training":
                 const duration = parseInt(document.getElementById('cardioDuration').value) || 0;
                 const metSelect = document.getElementById('metSelect');
                 let met = parseFloat(metSelect.value);
-                if (metSelect.value === 'custom') {{
-                    met = parseFloat(document.getElementById('customMet').value);
-                }}
+                if (metSelect.value === 'custom') met = parseFloat(document.getElementById('customMet').value);
                 if (duration <= 0) {{
                     showToast('请输入有效时长');
                     return;
@@ -716,7 +700,7 @@ elif tab == "training":
             }}
         }}
 
-        // ---------- 初始化 ----------
+        // 初始化
         addStrengthBlock();
     </script>
     """
@@ -728,7 +712,7 @@ elif tab == "report":
     <div class="card" id="reportContent">
         <div style="text-align:center; color:#94a3b8; padding:20px;">加载中...</div>
     </div>
-    <a href="?webview=1&wechat_openid={wechat_openid}&avatar={avatar}&nickname={nickname}" class="back-link">← 返回首页</a>
+    <a href="?webview=1&tab=home&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}" class="back-link">← 返回首页</a>
     <div class="footer">数据基于您的训练记录生成</div>
     <script>
         async function loadReport() {{
@@ -783,9 +767,6 @@ elif tab == "report":
             }}
         }}
         window.refreshData = loadReport;
-        setTimeout(() => {{
-            if (accessToken) loadReport();
-        }}, 500);
     </script>
     """
 
