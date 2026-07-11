@@ -5,7 +5,6 @@ from datetime import datetime
 
 # 设置页面
 st.set_page_config(page_title="茧记", page_icon="🦋", layout="wide")
-
 query_params = st.query_params
 
 # 拦截非小程序访问
@@ -19,11 +18,11 @@ wechat_openid = query_params.get("wechat_openid", "")
 avatar = query_params.get("avatar", "")
 nickname = query_params.get("nickname", "微信用户")
 
-# 【关键修复 1】：处理默认显示
+# 处理头像和昵称的回退默认值
 display_avatar = avatar if avatar else "https://mmbiz.qpic.cn/mmbiz/icTdbqWNOwNRna42FI242Lcia07jQodd2FJGIYQfG0LAJGFxM4FbnQP6yfMxBgJ0F3YRqJCJ1aPAK2dQagdusBZg/0"
 display_nickname = nickname if nickname else "微信用户"
 
-# 生成带参数的安全跳转链接
+# 生成带参数的安全跳转链接（确保内页导航不丢参数）
 safe_avatar = urllib.parse.quote(avatar)
 safe_nickname = urllib.parse.quote(nickname)
 nav_params = f"?webview=1&wechat_openid={wechat_openid}&avatar={safe_avatar}&nickname={safe_nickname}"
@@ -53,8 +52,8 @@ cardio_opts_html = "".join([f'<option value="{e}">{e}</option>' for e in cardio_
 met_opts_html = "".join([f'<option value="{v}">{k}</option>' for k, v in cardio_met_options])
 strength_json = json.dumps(strength_parts, ensure_ascii=False)
 
-# ---------- 全局 CSS 与 核心鉴权 JS ----------
-head_html = f"""
+# ---------- 全局纯净 HTML 头部 ----------
+base_html = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -82,6 +81,7 @@ head_html = f"""
     .stat-row:last-child {{ border-bottom: none; }}
     .avatar-img {{ width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #e2e8f0; }}
     .user-row {{ display: flex; align-items: center; gap: 12px; }}
+    .user-name {{ font-weight: 600; color: #0f172a; font-size: 16px; }}
     .toast {{ position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.85); color: white; padding: 16px 24px; border-radius: 12px; font-size: 16px; z-index: 999999; display: none; text-align: center; white-space: nowrap; }}
     .switch-mode {{ display: flex; gap: 12px; margin-bottom: 16px; }}
     .switch-mode button {{ flex: 1; padding: 10px; border: 2px solid #e2e8f0; background: white; border-radius: 12px; font-size: 14px; font-weight: 500; cursor: pointer; }}
@@ -103,60 +103,6 @@ head_html = f"""
 </head>
 <body>
 <div id="toast" class="toast"></div>
-<script>
-    const SUPABASE_URL = '{supabase_url}';
-    const SUPABASE_ANON_KEY = '{supabase_anon_key}';
-    const WECHAT_OPENID = '{wechat_openid}';
-    let gbToken = null;
-    let gbUserId = null;
-
-    function showToast(msg) {{
-        const t = document.getElementById('toast');
-        t.textContent = msg; t.style.display = 'block';
-        setTimeout(() => t.style.display = 'none', 2500);
-    }}
-
-    async function getAuth() {{
-        if (!WECHAT_OPENID) return null;
-        try {{
-            const email = WECHAT_OPENID + '@wechat.com';
-            let res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
-                body: JSON.stringify({{ email, password: 'wechat123' }})
-            }});
-            let data = await res.json();
-            
-            if (data.access_token) {{
-                gbToken = data.access_token; gbUserId = data.user.id;
-                return true;
-            }} else {{
-                res = await fetch(SUPABASE_URL + '/auth/v1/signup', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
-                    body: JSON.stringify({{ email, password: 'wechat123' }})
-                }});
-                data = await res.json();
-                if (data.access_token) {{
-                    gbToken = data.access_token; gbUserId = data.user.id;
-                    return true;
-                }}
-            }}
-        }} catch(e) {{ console.error("鉴权失败", e); }}
-        return false;
-    }}
-
-    async function apiRequest(method, path, body = null) {{
-        if (!gbToken) await getAuth();
-        const options = {{
-            method,
-            headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + gbToken }}
-        }};
-        if (body) options.body = JSON.stringify(body);
-        const r = await fetch(SUPABASE_URL + path, options);
-        return r.json();
-    }}
-</script>
 """
 
 # ---------- 首页 ----------
@@ -169,7 +115,7 @@ if tab == "home":
             <img class="avatar-img" src="{display_avatar}" alt="头像">
             <div>
                 <div class="user-name">{display_nickname}</div>
-                <div class="user-status" id="loginStatus" style="font-size:12px; color:#94a3b8;">系统连接中...</div>
+                <div id="loginStatus" style="font-size:12px; color:#94a3b8;">系统连接中...</div>
             </div>
             <span class="badge" style="margin-left:auto;">在线</span>
         </div>
@@ -191,45 +137,95 @@ if tab == "home":
     </div>
     
     <script>
-    // 独立且自执行的业务逻辑，不依赖全局 onload
+    // 强制隔离闭包：任何内部错误都不会影响外部，Streamlit 重复渲染也不会冲突
     (async function() {{
+        const SUPABASE_URL = '{supabase_url}';
+        const SUPABASE_ANON_KEY = '{supabase_anon_key}';
+        const WECHAT_OPENID = '{wechat_openid}';
+        let gbToken = null;
+        let gbUserId = null;
+
+        async function initAuth() {{
+            if (!WECHAT_OPENID) return false;
+            try {{
+                const email = WECHAT_OPENID + '@wechat.com';
+                const opts = {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }},
+                    body: JSON.stringify({{ email, password: 'wechat123' }})
+                }};
+                
+                let res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', opts);
+                let data = await res.json();
+                
+                if (!data.access_token) {{
+                    res = await fetch(SUPABASE_URL + '/auth/v1/signup', opts);
+                    data = await res.json();
+                }}
+                
+                if (data.access_token) {{
+                    gbToken = data.access_token; 
+                    gbUserId = data.user.id;
+                    
+                    // 静默同步用户资料
+                    fetch(SUPABASE_URL + '/rest/v1/profiles?user_id=eq.' + gbUserId, {{
+                        method: 'PATCH',
+                        headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + gbToken }},
+                        body: JSON.stringify({{ avatar_url: '{avatar}', nickname: '{nickname}' }})
+                    }}).catch(e => console.log(e));
+                    
+                    return true;
+                }}
+            }} catch(e) {{ console.error(e); }}
+            return false;
+        }}
+
+        async function fetchAPI(path) {{
+            const res = await fetch(SUPABASE_URL + path, {{
+                headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + gbToken }}
+            }});
+            return res.json();
+        }}
+
+        // 业务渲染
         const statusEl = document.getElementById('loginStatus');
         const listEl = document.getElementById('todayList');
         const countEl = document.getElementById('todayCount');
         
-        if (!await getAuth()) {{
-            statusEl.textContent = '连接失败';
-            statusEl.style.color = 'red';
-            listEl.textContent = '无法连接数据库';
-            countEl.textContent = '错误';
+        if (!await initAuth()) {{
+            statusEl.textContent = '连接鉴权失败';
+            statusEl.style.color = '#ef4444';
+            listEl.textContent = '无法读取数据库';
+            countEl.textContent = '离线';
             return;
         }}
+        
         statusEl.textContent = '已连接数据库';
         statusEl.style.color = '#16a34a';
 
         try {{
             const today = new Date().toISOString().slice(0,10);
-            const resp = await apiRequest('GET', '/rest/v1/workouts?user_id=eq.' + gbUserId + '&date=eq.' + today);
+            const resp = await fetchAPI('/rest/v1/workouts?user_id=eq.' + gbUserId + '&date=eq.' + today);
             
-            if (!Array.isArray(resp)) throw new Error("API 响应异常");
-            
-            countEl.textContent = resp.length + ' 项';
-            if (resp.length > 0) {{
-                let html = '';
-                resp.forEach(w => {{ html += `<div style="padding:4px 0;text-align:left;color:#333;">• ${{w.body_part}} ${{w.exercise}}：${{w.set_count || 0}}组</div>`; }});
-                listEl.innerHTML = html;
-            }} else {{
-                listEl.textContent = '今天还没有训练记录，开始吧 💪';
+            if (Array.isArray(resp)) {{
+                countEl.textContent = resp.length + ' 项';
+                if (resp.length > 0) {{
+                    let htmlStr = '';
+                    resp.forEach(w => {{ htmlStr += `<div style="padding:4px 0;text-align:left;color:#333;">• ${{w.body_part}} ${{w.exercise}}：${{w.set_count || 0}}组</div>`; }});
+                    listEl.innerHTML = htmlStr;
+                }} else {{
+                    listEl.textContent = '今天还没有训练记录，开始吧 💪';
+                }}
             }}
         }} catch(e) {{
-            listEl.textContent = '数据加载失败';
+            listEl.textContent = '数据加载异常';
             countEl.textContent = '错误';
         }}
     }})();
     </script>
     </body></html>
     """
-    st.html(head_html + html_body)
+    st.html(base_html + html_body)
 
 # ---------- 训练记录 ----------
 elif tab == "training":
@@ -237,40 +233,67 @@ elif tab == "training":
     <div class="brand"><h1>🏋️ 训练记录</h1><p>记录每一次进步</p></div>
     <div class="card">
         <div class="switch-mode">
-            <button id="modeStrength" class="active" onclick="switchMode('strength')">💪 力量</button>
-            <button id="modeCardio" onclick="switchMode('cardio')">🏃 有氧</button>
+            <button id="modeStrength" class="active" onclick="window.switchMode('strength')">💪 力量</button>
+            <button id="modeCardio" onclick="window.switchMode('cardio')">🏃 有氧</button>
         </div>
         <form id="workoutForm">
             <div id="strengthFields">
                 <div id="strengthBlocks"></div>
-                <button type="button" class="btn btn-secondary" onclick="addStrengthBlock()">+ 添加部位</button>
+                <button type="button" class="btn btn-secondary" onclick="window.addStrengthBlock()">+ 添加部位</button>
             </div>
             <div id="cardioFields" class="hidden">
                 <div class="input-group"><label>动作</label><select id="cardioExercise">{cardio_opts_html}</select></div>
                 <div class="input-group"><label>时长 (分钟)</label><input type="number" id="cardioDuration" value="30" min="1"></div>
-                <div class="input-group"><label>强度 (MET)</label><select id="metSelect" onchange="toggleMet()">{met_opts_html}</select></div>
+                <div class="input-group"><label>强度 (MET)</label><select id="metSelect" onchange="window.toggleMet()">{met_opts_html}</select></div>
                 <div class="input-group hidden" id="customMetGroup"><label>自定义 MET</label><input type="number" id="customMet" value="8.0" step="0.1"></div>
             </div>
-            <button type="button" class="btn" onclick="saveWorkout()" style="margin-top:12px;">保存记录</button>
+            <button type="button" class="btn" onclick="window.saveWorkout()" style="margin-top:12px;">保存记录</button>
         </form>
     </div>
     <a href="{nav_params}&tab=home" class="back-link">← 返回首页</a>
     
     <script>
+    (function() {{
+        const SUPABASE_URL = '{supabase_url}';
+        const SUPABASE_ANON_KEY = '{supabase_anon_key}';
+        const WECHAT_OPENID = '{wechat_openid}';
         const STRENGTH_PARTS = {strength_json};
+        let gbToken = null;
+        let gbUserId = null;
         let blockCount = 0;
 
-        function switchMode(mode) {{
+        function showToast(msg) {{
+            const t = document.getElementById('toast');
+            t.textContent = msg; t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 2500);
+        }}
+
+        async function initAuth() {{
+            if (gbToken) return true;
+            if (!WECHAT_OPENID) return false;
+            try {{
+                const email = WECHAT_OPENID + '@wechat.com';
+                const opts = {{ method: 'POST', headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }}, body: JSON.stringify({{ email, password: 'wechat123' }}) }};
+                let res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', opts);
+                let data = await res.json();
+                if (!data.access_token) {{ res = await fetch(SUPABASE_URL + '/auth/v1/signup', opts); data = await res.json(); }}
+                if (data.access_token) {{ gbToken = data.access_token; gbUserId = data.user.id; return true; }}
+            }} catch(e) {{}}
+            return false;
+        }}
+
+        window.switchMode = function(mode) {{
             document.getElementById('modeStrength').classList.toggle('active', mode === 'strength');
             document.getElementById('modeCardio').classList.toggle('active', mode === 'cardio');
             document.getElementById('strengthFields').style.display = mode === 'strength' ? 'block' : 'none';
             document.getElementById('cardioFields').style.display = mode === 'cardio' ? 'block' : 'none';
-        }}
-        function toggleMet() {{
-            document.getElementById('customMetGroup').style.display = document.getElementById('metSelect').value === 'custom' ? 'block' : 'none';
-        }}
+        }};
 
-        function addStrengthBlock() {{
+        window.toggleMet = function() {{
+            document.getElementById('customMetGroup').style.display = document.getElementById('metSelect').value === 'custom' ? 'block' : 'none';
+        }};
+
+        window.addStrengthBlock = function() {{
             blockCount++;
             const container = document.getElementById('strengthBlocks');
             const blockId = 'block_' + blockCount;
@@ -282,42 +305,41 @@ elif tab == "training":
             div.id = blockId;
             div.innerHTML = `
                 <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                    <b>部位 ${{blockCount}}</b>
-                    <button type="button" class="remove-btn-red" onclick="document.getElementById('${{blockId}}').remove()">删除</button>
+                    <b>部位 ${{blockCount}}</b><button type="button" class="remove-btn-red" onclick="document.getElementById('${{blockId}}').remove()">删除</button>
                 </div>
-                <div class="input-group"><label>部位</label><select class="b-part" onchange="updateEx('${{blockId}}')">${{partOpts}}</select></div>
+                <div class="input-group"><label>部位</label><select class="b-part" onchange="window.updateEx('${{blockId}}')">${{partOpts}}</select></div>
                 <div class="input-group"><label>动作</label><select class="b-ex"></select></div>
-                <div class="input-group"><label>组数</label><input type="number" class="b-sets" value="3" min="1" onchange="genGroups('${{blockId}}')"></div>
+                <div class="input-group"><label>组数</label><input type="number" class="b-sets" value="3" min="1" onchange="window.genGroups('${{blockId}}')"></div>
                 <div id="${{blockId}}_groups"></div>
-                <button type="button" class="add-btn" onclick="addGroup('${{blockId}}')">+ 添加一组</button>
+                <button type="button" class="add-btn" onclick="window.addGroup('${{blockId}}')">+ 添加一组</button>
             `;
             container.appendChild(div);
-            updateEx(blockId);
-            genGroups(blockId);
-        }}
+            window.updateEx(blockId);
+            window.genGroups(blockId);
+        }};
 
-        function updateEx(blockId) {{
+        window.updateEx = function(blockId) {{
             const part = document.querySelector('#' + blockId + ' .b-part').value;
             document.querySelector('#' + blockId + ' .b-ex').innerHTML = (STRENGTH_PARTS[part] || []).map(e => `<option value="${{e}}">${{e}}</option>`).join('');
-        }}
+        }};
 
-        function genGroups(blockId) {{
+        window.genGroups = function(blockId) {{
             const count = parseInt(document.querySelector('#' + blockId + ' .b-sets').value) || 0;
             document.getElementById(blockId + '_groups').innerHTML = '';
-            for (let i=0; i<count; i++) addGroup(blockId, i+1);
-        }}
+            for (let i=0; i<count; i++) window.addGroup(blockId, i+1);
+        }};
 
-        function addGroup(blockId, idxLabel=null) {{
+        window.addGroup = function(blockId, idxLabel=null) {{
             const container = document.getElementById(blockId + '_groups');
             const idx = idxLabel || (container.children.length + 1);
             const div = document.createElement('div');
             div.className = 'group-item';
             div.innerHTML = `<span>${{idx}}.</span><input type="number" placeholder="次数" class="g-reps" value="10"><input type="number" placeholder="重量(kg)" class="g-weight" value="20"><button type="button" class="remove-btn" onclick="this.parentElement.remove()">✕</button>`;
             container.appendChild(div);
-        }}
+        }};
 
-        async function saveWorkout() {{
-            if (!await getAuth()) return showToast('未登录，无法保存');
+        window.saveWorkout = async function() {{
+            if (!await initAuth()) return showToast('未登录，无法保存');
             const isStrength = document.getElementById('modeStrength').classList.contains('active');
             let records = [];
 
@@ -344,18 +366,22 @@ elif tab == "training":
             if (!records.length) return showToast('无有效记录');
             let success = true;
             for (let r of records) {{
-                let res = await apiRequest('POST', '/rest/v1/workouts', r);
-                if (res.error) success = false;
+                let res = await fetch(SUPABASE_URL + '/rest/v1/workouts', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + gbToken }},
+                    body: JSON.stringify(r)
+                }});
+                if (!res.ok) success = false;
             }}
             showToast(success ? '保存成功！' : '部分保存失败');
-        }}
+        }};
 
-        // 初始化一列力量训练
-        addStrengthBlock();
+        window.addStrengthBlock();
+    }})();
     </script>
     </body></html>
     """
-    st.html(head_html + html_body)
+    st.html(base_html + html_body)
 
 # ---------- 今日战报 ----------
 elif tab == "report":
@@ -363,15 +389,35 @@ elif tab == "report":
     <div class="brand"><h1>📊 今日战报</h1><p>{datetime.now().strftime("%Y年%m月%d日")}</p></div>
     <div class="card" id="reportContent"><div style="text-align:center; padding:20px;">正在生成战报...</div></div>
     <a href="{nav_params}&tab=home" class="back-link">← 返回首页</a>
+    
     <script>
     (async function() {{
+        const SUPABASE_URL = '{supabase_url}';
+        const SUPABASE_ANON_KEY = '{supabase_anon_key}';
+        const WECHAT_OPENID = '{wechat_openid}';
         const box = document.getElementById('reportContent');
-        if (!await getAuth()) return box.innerHTML = '<div style="text-align:center;padding:20px;">鉴权失败</div>';
-        
+
         try {{
+            const email = WECHAT_OPENID + '@wechat.com';
+            const authOpts = {{ method: 'POST', headers: {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY }}, body: JSON.stringify({{ email, password: 'wechat123' }}) }};
+            let res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', authOpts);
+            let data = await res.json();
+            if (!data.access_token) {{ res = await fetch(SUPABASE_URL + '/auth/v1/signup', authOpts); data = await res.json(); }}
+            if (!data.access_token) throw new Error("鉴权失败");
+
+            const gbToken = data.access_token;
+            const gbUserId = data.user.id;
+            const hdrs = {{ 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + gbToken }};
+            
             const today = new Date().toISOString().slice(0,10);
-            const workouts = await apiRequest('GET', '/rest/v1/workouts?user_id=eq.' + gbUserId + '&date=eq.' + today);
-            const profile = await apiRequest('GET', '/rest/v1/profiles?user_id=eq.' + gbUserId);
+            
+            // 并发请求提升加载速度
+            const [workoutsRes, profileRes] = await Promise.all([
+                fetch(SUPABASE_URL + '/rest/v1/workouts?user_id=eq.' + gbUserId + '&date=eq.' + today, {{headers: hdrs}}),
+                fetch(SUPABASE_URL + '/rest/v1/profiles?user_id=eq.' + gbUserId, {{headers: hdrs}})
+            ]);
+            const workouts = await workoutsRes.json();
+            const profile = await profileRes.json();
             
             let weight = (Array.isArray(profile) && profile.length) ? (profile[0].weight || 70) : 70;
             let totalCal = 0, parts = new Set(), actions = new Set(), detailHtml = '';
@@ -398,17 +444,17 @@ elif tab == "report":
                 <div style="margin-top:16px;"><h3 style="font-size:16px; margin-bottom:8px;">✅ 详细记录</h3>${{detailHtml || '<div style="color:#94a3b8;">今日无训练记录</div>'}}</div>
             `;
         }} catch(e) {{
-            box.innerHTML = '<div style="text-align:center;padding:20px;">生成失败</div>';
+            box.innerHTML = '<div style="text-align:center;padding:20px;">数据生成失败</div>';
         }}
     }})();
     </script>
     </body></html>
     """
-    st.html(head_html + html_body)
+    st.html(base_html + html_body)
 
-# ---------- 其他页面简写 (日历/设置) 为了演示已简化，可按相同模式扩展 ----------
+# ---------- 其他简化页面 (个人设置 & 日历) ----------
 else:
-    st.html(head_html + f"""
+    st.html(base_html + f"""
     <div class="brand"><h1>建设中...</h1></div>
     <a href="{nav_params}&tab=home" class="back-link">← 返回首页</a>
     </body></html>
